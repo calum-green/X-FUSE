@@ -28,7 +28,7 @@ dependencies = [
 
 [project.optional-dependencies]
 cuda = [
-    "torch[cu121]>=2.0",
+    "torch>=2.0",
     "torchvision>=0.15",
 ]
 cpu = [

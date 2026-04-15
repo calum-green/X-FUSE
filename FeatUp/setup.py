@@ -1,5 +1,28 @@
+import sys
+import os
 from setuptools import setup, find_packages
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension, CppExtension
+
+# Platform-specific CUDA extension building
+# On macOS: skip CUDA extensions
+# On Linux: build CUDA extensions for GPU support
+ext_modules = []
+cmdclass = {}
+
+if sys.platform != 'darwin':  # Not macOS
+    ext_modules = [
+        CUDAExtension(
+            'adaptive_conv_cuda_impl',
+            [
+                'featup/adaptive_conv_cuda/adaptive_conv_cuda.cpp',
+                'featup/adaptive_conv_cuda/adaptive_conv_kernel.cu',
+            ]),
+        CppExtension(
+            'adaptive_conv_cpp_impl',
+            ['featup/adaptive_conv_cuda/adaptive_conv.cpp'],
+            undef_macros=["NDEBUG"]),
+    ]
+    cmdclass = {'build_ext': BuildExtension}
 
 setup(
     name='featup',
@@ -30,19 +53,6 @@ setup(
         'Operating System :: OS Independent',
     ],
     python_requires='>=3.6',
-    ext_modules=[
-        CUDAExtension(
-            'adaptive_conv_cuda_impl',
-            [
-                'featup/adaptive_conv_cuda/adaptive_conv_cuda.cpp',
-                'featup/adaptive_conv_cuda/adaptive_conv_kernel.cu',
-            ]),
-        CppExtension(
-            'adaptive_conv_cpp_impl',
-            ['featup/adaptive_conv_cuda/adaptive_conv.cpp'],
-            undef_macros=["NDEBUG"]),
-    ],
-    cmdclass={
-        'build_ext': BuildExtension
-    }
+    ext_modules=ext_modules,
+    cmdclass=cmdclass
 )
