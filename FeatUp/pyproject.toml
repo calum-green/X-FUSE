@@ -1,0 +1,71 @@
+[build-system]
+requires = ["setuptools>=61.0", "wheel", "torch"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "featup"
+version = "0.1.2"
+description = "Official code for 'FeatUp: A Model-Agnostic Framework for Features at Any Resolution' ICLR 2024"
+readme = "README.md"
+requires-python = ">=3.8"
+authors = [
+    { name = "Mark Hamilton", email = "markth@mit.edu" },
+    { name = "Stephanie Fu", email = "fus@berkeley.edu" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+# Platform-specific dependencies for reproducibility
+# macOS: CPU-only PyTorch (CUDA extensions not built)
+# Linux: CUDA-capable PyTorch with CUDA 12.1 extensions
+dependencies = [
+    "torch>=1.9",
+    "torchvision>=0.10",
+    "pytorch-lightning>=1.5",
+    "kornia>=0.6",
+    "omegaconf>=2.1",
+    "tqdm>=4.50",
+    "torchmetrics>=0.10",
+    "scikit-learn>=0.24",
+    "numpy>=1.19",
+    "matplotlib>=3.3",
+    "timm>=0.4.12",
+]
+
+[project.optional-dependencies]
+cuda = [
+    "torch[cu121]>=1.9",
+    "torchvision>=0.10",
+    "pytorch-lightning>=1.5",
+]
+cpu = [
+    "torch>=1.9",
+    "torchvision>=0.10",
+    "pytorch-lightning>=1.5",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "ipython>=7.0",
+    "jupyter>=1.0",
+    "pytest-benchmark>=4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/mhamilton723/FeatUp"
+Repository = "https://github.com/mhamilton723/FeatUp.git"
+Documentation = "https://github.com/mhamilton723/FeatUp"
+
+[tool.setuptools]
+packages = ["featup"]
+
+[tool.setuptools.package-data]
+featup = ["adaptive_conv_cuda/*"]

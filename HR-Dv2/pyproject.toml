@@ -1,0 +1,49 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hr_dv2"
+version = "0.0.1"
+description = "Module for extracting high-resolution features from the DINOv2 model."
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    { name = "Ronan Docherty", email = "ronan.docherty18@ic.ac.uk" },
+]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+]
+
+dependencies = [
+    "torch>=2.0",
+    "torchvision>=0.15",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+cuda = [
+    "torch[cu121]>=2.0",
+    "torchvision>=0.15",
+]
+cpu = [
+    "torch>=2.0",
+    "torchvision>=0.15",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov>=4.0",
+    "pytest-benchmark>=4.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/tldr-group/HR-Dv2"
+Repository = "https://github.com/tldr-group/HR-Dv2.git"
+
+[tool.setuptools]
+packages = ["hr_dv2"]
