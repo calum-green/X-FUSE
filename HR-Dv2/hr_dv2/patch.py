@@ -91,7 +91,9 @@ class Patch:
         :rtype: Callable
         """
 
-        def interpolate_pos_encoding(self, x: torch.Tensor, w: int, h: int) -> torch.Tensor:
+        def interpolate_pos_encoding(
+            self, x: torch.Tensor, w: int, h: int
+        ) -> torch.Tensor:
             previous_dtype = x.dtype
             npatch = x.shape[1] - 1
             N = self.pos_embed.shape[1] - 1
@@ -104,21 +106,30 @@ class Patch:
             # compute number of tokens taking stride into account
             w0: float = 1 + (w - patch_size) // stride_hw[1]
             h0: float = 1 + (h - patch_size) // stride_hw[0]
-            assert w0 * h0 == npatch, f"""got wrong grid size for {h}x{w} with patch_size {patch_size} and
+            assert (
+                w0 * h0 == npatch
+            ), f"""got wrong grid size for {h}x{w} with patch_size {patch_size} and
             #                               stride {stride_hw} got {h0}x{w0}={h0 * w0} expecting {npatch}"""
             # we add a small number to avoid floating point error in the interpolation
             # see discussion at https://github.com/facebookresearch/dino/issues/8
             w0, h0 = w0 + 0.1, h0 + 0.1
             patch_pos_embed = F.interpolate(
-                patch_pos_embed.reshape(1, int(math.sqrt(N)), int(math.sqrt(N)), dim).permute(0, 3, 1, 2),
+                patch_pos_embed.reshape(
+                    1, int(math.sqrt(N)), int(math.sqrt(N)), dim
+                ).permute(0, 3, 1, 2),
                 scale_factor=(w0 / math.sqrt(N), h0 / math.sqrt(N)),
                 mode="bicubic",
                 align_corners=False,
                 recompute_scale_factor=False,
             )
-            assert int(w0) == patch_pos_embed.shape[-2] and int(h0) == patch_pos_embed.shape[-1]
+            assert (
+                int(w0) == patch_pos_embed.shape[-2]
+                and int(h0) == patch_pos_embed.shape[-1]
+            )
             patch_pos_embed = patch_pos_embed.permute(0, 2, 3, 1).view(1, -1, dim)
-            return torch.cat((class_pos_embed.unsqueeze(0), patch_pos_embed), dim=1).to(previous_dtype)
+            return torch.cat((class_pos_embed.unsqueeze(0), patch_pos_embed), dim=1).to(
+                previous_dtype
+            )
 
         return interpolate_pos_encoding
 
@@ -137,7 +148,11 @@ class Patch:
 
         def forward(self, x: torch.Tensor, return_attn: bool = False) -> torch.Tensor:
             B, N, C = x.shape
-            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads).permute(2, 0, 3, 1, 4)
+            qkv = (
+                self.qkv(x)
+                .reshape(B, N, 3, self.num_heads, C // self.num_heads)
+                .permute(2, 0, 3, 1, 4)
+            )
 
             q, k, v = qkv[0] * self.scale, qkv[1], qkv[2]
             attn = q @ k.transpose(-2, -1)
@@ -170,11 +185,14 @@ class Patch:
             x: torch.Tensor,
             attn_bias=None,
             attn_choice: AttentionOptions = "none",
+            # return_attn: bool = False,
         ) -> torch.Tensor:
             if not XFORMERS_AVAILABLE:
                 if attn_bias is not None:
-                    raise AssertionError("xFormers is required for using nested tensors")
-                return self._original_forward(x)  # type: ignore
+                    raise AssertionError(
+                        "xFormers is required for using nested tensors"
+                    )
+                return super(type(self), self).forward(x)  # type: ignore
             B, N, C = x.shape
             qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads)
 
@@ -205,7 +223,9 @@ class Patch:
         :rtype: Callable
         """
 
-        def forward(self, x: torch.Tensor, attn_choice: AttentionOptions = "none") -> torch.Tensor:
+        def forward(
+            self, x: torch.Tensor, attn_choice: AttentionOptions = "none"
+        ) -> torch.Tensor:
             def attn_residual_func(x: torch.Tensor) -> torch.Tensor:
                 # return self.ls1(self.attn(self.norm1(x)))
                 return self.attn(self.norm1(x))
@@ -254,7 +274,9 @@ class Patch:
         :rtype: Callable
         """
 
-        def forward(self, x: torch.Tensor, attn_choice: AttentionOptions = "none") -> torch.Tensor:
+        def forward(
+            self, x: torch.Tensor, attn_choice: AttentionOptions = "none"
+        ) -> torch.Tensor:
             def attn_residual_func(x: torch.Tensor) -> torch.Tensor:
                 return self.ls1(self.attn(self.norm1(x)))
 
@@ -300,7 +322,9 @@ class Patch:
                 return super().forward(x_or_x_list)  # type: ignore
             elif isinstance(x_or_x_list, list):
                 if not XFORMERS_AVAILABLE:
-                    raise AssertionError("xFormers is required for using nested tensors")
+                    raise AssertionError(
+                        "xFormers is required for using nested tensors"
+                    )
                 return self.forward_nested(x_or_x_list)
             else:
                 raise AssertionError
@@ -309,7 +333,9 @@ class Patch:
 
     @staticmethod
     def _add_new_forward_features_dino() -> Callable:
-        def forward_feats_attn(self, x, masks=None, attn_choice: AttentionOptions = "none"):
+        def forward_feats_attn(
+            self, x, masks=None, attn_choice: AttentionOptions = "none"
+        ):
             if isinstance(x, list):
                 return self.forward_features_list(x, masks)
 
@@ -346,7 +372,9 @@ class Patch:
 
     @staticmethod
     def _add_new_forward_features_dv2() -> Callable:
-        def forward_feats_attn(self, x, masks=None, attn_choice: AttentionOptions = "none"):
+        def forward_feats_attn(
+            self, x, masks=None, attn_choice: AttentionOptions = "none"
+        ):
             if isinstance(x, list):
                 return self.forward_features_list(x, masks)
 
@@ -383,7 +411,9 @@ class Patch:
 
     @staticmethod
     def _add_new_forward_features_dv3(model: torch.nn.Module) -> Callable:
-        def forward_feats_attn(self, x, masks=None, attn_choice: AttentionOptions = "none"):
+        def forward_feats_attn(
+            self, x, masks=None, attn_choice: AttentionOptions = "none"
+        ):
             out_dict = model.forward_features(x)
             return out_dict
 
@@ -391,7 +421,9 @@ class Patch:
 
     @staticmethod
     def _add_new_forward_features_vit() -> Callable:
-        def forward_feats_attn(self, x, masks=None, attn_choice: AttentionOptions = "none"):
+        def forward_feats_attn(
+            self, x, masks=None, attn_choice: AttentionOptions = "none"
+        ):
             B, nc, w, h = x.shape
 
             x = self.patch_embed(x)
@@ -452,5 +484,7 @@ def drop_add_residual_stochastic_depth(
     residual_scale_factor = b / sample_subset_size
 
     # 3) add the residual
-    x_plus_residual = torch.index_add(x_flat, 0, brange, residual.to(dtype=x.dtype), alpha=residual_scale_factor)
+    x_plus_residual = torch.index_add(
+        x_flat, 0, brange, residual.to(dtype=x.dtype), alpha=residual_scale_factor
+    )
     return x_plus_residual.view_as(x)
