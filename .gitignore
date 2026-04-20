@@ -1,4 +1,6 @@
 cache-dir
+*__pycache__*
+
 
 #CUDA Build Files
 FeatUp/featup.egg-info/*
