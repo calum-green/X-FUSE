@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "x-fuse"
 version = "0.1.0"
-description = "XRD Fusion toolkit integrating FeatUp and HR-Dv2 models"
+description = "XCT and XRDCT Fusion Toolkit"
 requires-python = ">=3.10"
 authors = [
     { name = "Calum Green", email = "calum.green17@imperial.ac.uk" },
@@ -13,6 +13,8 @@ authors = [
 dependencies = [
     "featup",
     "hr_dv2",
+    "opencv-python>=4.13.0.92",
+    "porespy>=3.0.2",
     "torch>=2.0",
 ]
 
