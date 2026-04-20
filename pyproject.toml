@@ -23,6 +23,7 @@ dependencies = [
 [project.optional-dependencies]
 cuda = [
     "torch>=2.0",
+    "xformers>=0.0.29.post3",
 ]
 cpu = [
     "torch>=2.0",
