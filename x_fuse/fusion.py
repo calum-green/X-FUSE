@@ -199,7 +199,7 @@ class XRDFusionMethod(nn.Module):
 
         # Ensure xrd_map has same spatial dims as features
         xrd_map = F.interpolate(
-            xrd_map.float(), size=(H, W), mode="bilinear", align_corners=False
+            xrd_map.to(features.dtype), size=(H, W), mode="bilinear", align_corners=False
         )
 
         # Flatten spatial dimensions for correlation computation
@@ -253,7 +253,7 @@ class XRDFusionMethod(nn.Module):
         elif xrd_map.dim() == 3:
             xrd_map = xrd_map.unsqueeze(0)
         xrd_map = F.interpolate(
-            xrd_map.float(), size=(H, W), mode="bilinear", align_corners=False
+            xrd_map.to(features.dtype), size=(H, W), mode="bilinear", align_corners=False
         )
 
         return self.learned_gating_module(features, xrd_map)
@@ -282,7 +282,7 @@ class XRDFusionMethod(nn.Module):
         elif xrd_map.dim() == 3:
             xrd_map = xrd_map.unsqueeze(0)
         xrd_map = F.interpolate(
-            xrd_map.float(), size=(H, W), mode="bilinear", align_corners=False
+            xrd_map.to(features.dtype), size=(H, W), mode="bilinear", align_corners=False
         )
 
         return self.spatial_attention_module(features, xrd_map)
