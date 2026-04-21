@@ -194,19 +194,17 @@ class XRDFusionMethod(nn.Module):
         B, C, H, W = features.shape
         B_xrd, C_xrd, H_xrd, W_xrd = xrd_map.shape
 
-        print(f"XRD map shape after unsqueeze: {xrd_map.shape}")
-        print(f"Feature shape: {features.shape}")
-
         # Ensure xrd_map has same spatial dims as features
         xrd_map = F.interpolate(
-            xrd_map.to(features.dtype), size=(H, W), mode="bilinear", align_corners=False
+            xrd_map.to(features.dtype),
+            size=(H, W),
+            mode="bilinear",
+            align_corners=False,
         )
 
         # Flatten spatial dimensions for correlation computation
         feat_flat = features.reshape(B, C, -1)  # (B, C, H*W)
         xrd_flat = xrd_map.reshape(-1)  # (B_xrd, C_xrd, H_xrd*W_xrd)
-
-        print(f"Feature Device: {features.device}, XRD Device: {xrd_flat.device}")
 
         # Compute correlation between each channel and XRD
         gates = []
@@ -246,7 +244,7 @@ class XRDFusionMethod(nn.Module):
         if not hasattr(self, "learned_gating_module"):
             self.learned_gating_module = LearnedChannelGating(
                 feat_dim=features.shape[1]
-            ).to(features.device)
+            ).to(device=features.device, dtype=features.dtype)
 
         _, _, H, W = features.shape
         if xrd_map.dim() == 2:
@@ -254,7 +252,10 @@ class XRDFusionMethod(nn.Module):
         elif xrd_map.dim() == 3:
             xrd_map = xrd_map.unsqueeze(0)
         xrd_map = F.interpolate(
-            xrd_map.to(features.dtype), size=(H, W), mode="bilinear", align_corners=False
+            xrd_map.to(features.dtype),
+            size=(H, W),
+            mode="bilinear",
+            align_corners=False,
         )
 
         return self.learned_gating_module(features, xrd_map)
@@ -275,7 +276,7 @@ class XRDFusionMethod(nn.Module):
         if not hasattr(self, "spatial_attention_module"):
             self.spatial_attention_module = XRDCrossAttention(
                 feat_dim=features.shape[1], num_heads=8
-            ).to(features.device)
+            ).to(device=features.device, dtype=features.dtype)
 
         _, _, H, W = features.shape
         if xrd_map.dim() == 2:
@@ -283,7 +284,10 @@ class XRDFusionMethod(nn.Module):
         elif xrd_map.dim() == 3:
             xrd_map = xrd_map.unsqueeze(0)
         xrd_map = F.interpolate(
-            xrd_map.to(features.dtype), size=(H, W), mode="bilinear", align_corners=False
+            xrd_map.to(features.dtype),
+            size=(H, W),
+            mode="bilinear",
+            align_corners=False,
         )
 
         return self.spatial_attention_module(features, xrd_map)
@@ -328,7 +332,7 @@ class XFuse(HighResDV2):
                 lib_path is not None
             ), "Must supply a local checkpoint for DINOv3!"
             self.dinov2 = torch.hub.load(
-                lib_path, "dinov3_vits16plus", source="local", weights=chk_path
+                lib_path, dino_name, source="local", weights=chk_path
             )
         elif "dino" in dino_name:
             hub_path = "facebookresearch/dino:main"
