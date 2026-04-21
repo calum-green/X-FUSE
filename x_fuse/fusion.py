@@ -95,6 +95,18 @@ class LearnedChannelGating(nn.Module):
             nn.Sigmoid(),  # Output [0, 1]
         )
 
+        # Predicts XRD intensity from gated features — used as training signal
+        self.pred_head = nn.Linear(feat_dim, 1)
+
+    def compute_loss(
+        self, gated_features: torch.Tensor, xrd_map: torch.Tensor
+    ) -> torch.Tensor:
+        B, C, H, W = gated_features.shape
+        feat_flat = gated_features.reshape(B, C, -1).permute(0, 2, 1)  # (B, H*W, C)
+        pred = self.pred_head(feat_flat).squeeze(-1)  # (B, H*W)
+        target = xrd_map.reshape(1, -1).expand(B, -1)  # (B, H*W)
+        return F.mse_loss(pred, target)
+
     def forward(self, features: torch.Tensor, xrd_map: torch.Tensor) -> torch.Tensor:
         """
         Apply learned gating: for each spatial location, compute channel gates from XRD.
@@ -116,16 +128,10 @@ class LearnedChannelGating(nn.Module):
 
         # Flatten spatial dimensions
         feat_flat = features.reshape(B, C, -1)  # (B, C, H*W)
-        xrd_flat = xrd_map.reshape(1, -1)  # (1, H*W)
+        xrd_flat = xrd_map.reshape(-1, 1)  # (H*W, 1)
 
-        # For each spatial location, compute channel gates from XRD intensity
-        gates_list = []
-        for spatial_idx in range(xrd_flat.shape[1]):
-            xrd_intensity = xrd_flat[:, spatial_idx : spatial_idx + 1]  # (1, 1)
-            gates = self.mlp(xrd_intensity)  # (1, feat_dim)
-            gates_list.append(gates)
-
-        gates = torch.cat(gates_list, dim=0)  # (H*W, feat_dim)
+        # Pass all spatial locations through MLP in one batched call
+        gates = self.mlp(xrd_flat)  # (H*W, feat_dim)
 
         # Apply gates to features
         gated_flat = feat_flat.permute(0, 2, 1) * gates.unsqueeze(0)  # (B, H*W, C)
@@ -140,6 +146,8 @@ class XRDFusionMethod(nn.Module):
         xrd_img: None,  # normalised XRD image from xrd_to_tensor
         transform: partial,
         require_grad: bool = False,
+        learned_gating: nn.Module = None,
+        spatial_attention: nn.Module = None,
     ):
         super().__init__()
 
@@ -147,6 +155,8 @@ class XRDFusionMethod(nn.Module):
         # load the XRD image as a normalised tensor
         self.xrd_image = xrd_img
         self.transform = transform
+        self.learned_gating_module = learned_gating
+        self.spatial_attention_module = spatial_attention
 
     def get_tr(self) -> torch.Tensor:
         """Apply all transforms to XRD data and return as a batch.
@@ -407,9 +417,20 @@ class XFuse(HighResDV2):
         device = kwargs.get("device", None)
         if dtype != torch.float32:
             self.dinov2 = self.dinov2.to(dtype)
+            if self.learned_gating is not None:
+                self.learned_gating = self.learned_gating.to(dtype)
         if device is not None:
             self.dinov2 = self.dinov2.to(device)
+            if self.learned_gating is not None:
+                self.learned_gating = self.learned_gating.to(device)
         self.track_grad = track_grad  # off by default to save memory
+
+        if self.learned_gating is not None:
+            self.fusion_optimizer = torch.optim.Adam(
+                self.learned_gating.parameters(), lr=1e-3
+            )
+        else:
+            self.fusion_optimizer = None
 
         self.patch_last_block(self.dinov2, dino_name)
 
@@ -483,6 +504,67 @@ class XFuse(HighResDV2):
         mean = out_feature_img / N_transforms
         return mean
 
+    def train_fusion_step(self, x: torch.Tensor) -> float:
+        """Update LearnedChannelGating weights for one step.
+
+        DINO backbone is frozen throughout. Only the gating MLP and
+        prediction head are updated.
+
+        :param x: unbatched XCT image tensor (C, H, W)
+        :return: mean MSE loss across transforms
+        """
+        assert self.xrd_fuse_method == "learned_gating", (
+            "train_fusion_step only applies to learned_gating"
+        )
+        assert self.xrd_fusion_module is not None, (
+            "Call set_xrd_transforms before training"
+        )
+
+        if self.dtype != torch.float32:
+            x = x.type(self.dtype)
+
+        _, img_h, img_w = x.shape
+        stride_l = self.stride[0]
+        n_patch_w = 1 + (img_w - self.original_patch_size) // stride_l
+        n_patch_h = 1 + (img_h - self.original_patch_size) // stride_l
+
+        with torch.no_grad():
+            img_batch = self.get_transformed_input_batch(x, self.transforms)
+
+        N_transforms = len(self.transforms)
+        total_loss = torch.tensor(0.0, dtype=torch.float32)
+
+        self.fusion_optimizer.zero_grad()
+
+        for i in range(N_transforms):
+            # Extract DINO features — backbone frozen
+            with torch.no_grad():
+                transformed_img = img_batch[i].unsqueeze(0)
+                out_dict = self.dinov2.forward_feats_attn(
+                    transformed_img, None, "none"
+                )  # type: ignore
+                features = out_dict["x_norm_patchtokens"].squeeze(0)
+                feat_patch = features.view((n_patch_h, n_patch_w, self.feat_dim))
+                permuted = feat_patch.permute((2, 0, 1)).unsqueeze(0)  # (1, C, H, W)
+
+            # Interpolate XRD map to match feature spatial dims
+            tr_xrd = self.xrd_fusion_module.get_tr()[i]
+            _, _, H, W = permuted.shape
+            if tr_xrd.dim() == 3:
+                tr_xrd = tr_xrd.unsqueeze(0)
+            tr_xrd = F.interpolate(
+                tr_xrd.to(permuted.dtype), size=(H, W), mode="bilinear", align_corners=False
+            )
+
+            # Gating forward pass WITH grad so MLP weights receive gradients
+            gated = self.learned_gating(permuted, tr_xrd)
+            loss = self.learned_gating.compute_loss(gated, tr_xrd)
+            total_loss = total_loss + loss.cpu().float()
+            loss.backward()
+
+        self.fusion_optimizer.step()
+        return (total_loss / N_transforms).item()
+
     def set_xrd_transforms(self, xrd_tensor, fwd, inv):
         super().set_transforms(fwd, inv)
         assert len(fwd) == len(
@@ -492,4 +574,6 @@ class XFuse(HighResDV2):
             xrd_img=xrd_tensor,
             transform=self.transforms,
             require_grad=self.track_grad,
+            learned_gating=self.learned_gating,
+            spatial_attention=self.spatial_attention,
         )
