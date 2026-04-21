@@ -217,11 +217,12 @@ class XRDFusionMethod(nn.Module):
             if feat_ch.shape[0] > 1:
                 corr = torch.corrcoef(torch.stack([feat_ch, xrd_flat]))[0, 1]
             else:
-                corr = torch.tensor(0.0, device=features.device)
+                corr = torch.tensor(0.0, device=features.device, dtype=features.dtype)
 
             gates.append(corr)
 
         gates = torch.stack(gates)  # (C,)
+        gates = torch.nan_to_num(gates, nan=0.0)
         gates = torch.clamp(gates, 0, 1)  # Clamp to [0, 1]
 
         # Apply gates: multiply each channel by its gate weight
