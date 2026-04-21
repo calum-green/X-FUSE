@@ -103,8 +103,10 @@ class LearnedChannelGating(nn.Module):
     ) -> torch.Tensor:
         B, C, H, W = gated_features.shape
         feat_flat = gated_features.reshape(B, C, -1).permute(0, 2, 1)  # (B, H*W, C)
-        pred = self.pred_head(feat_flat).squeeze(-1)  # (B, H*W)
-        target = xrd_map.reshape(1, -1).expand(B, -1)  # (B, H*W)
+        pred = (
+            self.pred_head(feat_flat).squeeze(-1).float()
+        )  # cast to fp32 to avoid overflow
+        target = xrd_map.reshape(1, -1).expand(B, -1).float()
         return F.mse_loss(pred, target)
 
     def forward(self, features: torch.Tensor, xrd_map: torch.Tensor) -> torch.Tensor:
@@ -427,7 +429,7 @@ class XFuse(HighResDV2):
 
         if self.learned_gating is not None:
             self.fusion_optimizer = torch.optim.Adam(
-                self.learned_gating.parameters(), lr=1e-3
+                self.learned_gating.parameters(), lr=1e-4
             )
         else:
             self.fusion_optimizer = None
@@ -513,12 +515,12 @@ class XFuse(HighResDV2):
         :param x: unbatched XCT image tensor (C, H, W)
         :return: mean MSE loss across transforms
         """
-        assert self.xrd_fuse_method == "learned_gating", (
-            "train_fusion_step only applies to learned_gating"
-        )
-        assert self.xrd_fusion_module is not None, (
-            "Call set_xrd_transforms before training"
-        )
+        assert (
+            self.xrd_fuse_method == "learned_gating"
+        ), "train_fusion_step only applies to learned_gating"
+        assert (
+            self.xrd_fusion_module is not None
+        ), "Call set_xrd_transforms before training"
 
         if self.dtype != torch.float32:
             x = x.type(self.dtype)
@@ -553,7 +555,10 @@ class XFuse(HighResDV2):
             if tr_xrd.dim() == 3:
                 tr_xrd = tr_xrd.unsqueeze(0)
             tr_xrd = F.interpolate(
-                tr_xrd.to(permuted.dtype), size=(H, W), mode="bilinear", align_corners=False
+                tr_xrd.to(permuted.dtype),
+                size=(H, W),
+                mode="bilinear",
+                align_corners=False,
             )
 
             # Gating forward pass WITH grad so MLP weights receive gradients
@@ -562,6 +567,7 @@ class XFuse(HighResDV2):
             total_loss = total_loss + loss.cpu().float()
             loss.backward()
 
+        torch.nn.utils.clip_grad_norm_(self.learned_gating.parameters(), max_norm=1.0)
         self.fusion_optimizer.step()
         return (total_loss / N_transforms).item()
 
