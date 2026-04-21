@@ -156,19 +156,10 @@ def load_xrd_h5(xrd_path):
 
 def xrd_to_tensor(xrd_img, device):
     """
-    Convert the XRD image to a tensor on DEVICE that has been normalised using ImageNet
-    normalisation values (mean=[0.485], std=[0.229]) and has a batch and channel dimension added
+    Convert the XRD image to a tensor on DEVICE, min-max normalised to [0, 1].
     """
-    xrd_image = Image.fromarray(xrd_img)
-    # Convert to PIL image and ensure 1 channels
+    t = transforms.ToTensor()(Image.fromarray(xrd_img).convert("L"))  # (1, H, W)
+    mn, mx = t.min(), t.max()
+    t = (t - mn) / (mx - mn)
 
-    xrd_tr = transforms.Compose(
-        [
-            transforms.Grayscale(num_output_channels=1),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=(0.445,), std=(0.269,)),
-        ]
-    )
-    xrd_tensor = xrd_tr(xrd_image).unsqueeze(0).to(device)
-
-    return xrd_tensor
+    return t.unsqueeze(0).to(device)  # (1, 1, H, W)
