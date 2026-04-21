@@ -80,31 +80,49 @@ class XRDCrossAttention(nn.Module):
         return attended
 
 
+LossOptions: TypeAlias = Literal["pearson", "bce"]
+
+
 class LearnedChannelGating(nn.Module):
     """Learn to gate channels based on XRD intensity."""
 
-    def __init__(self, feat_dim: int = 384):
+    def __init__(self, feat_dim: int = 384, loss_fn: LossOptions = "pearson"):
         super().__init__()
         self.feat_dim = feat_dim
+        self.loss_fn = loss_fn
 
+        hidden_dim = max(128, feat_dim // 4)
         # MLP: XRD intensity (1,) → channel gates (feat_dim,)
         self.mlp = nn.Sequential(
-            nn.Linear(1, 128),
+            nn.Linear(1, 64),
             nn.ReLU(),
-            nn.Linear(128, feat_dim),
+            nn.Linear(64, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, feat_dim),
             nn.Sigmoid(),  # Output [0, 1]
         )
 
         # Predicts XRD intensity from gated features — used as training signal
+        # BCE mode: raw logits (no activation); Pearson mode: unbounded scalar
         self.pred_head = nn.Linear(feat_dim, 1)
 
     def compute_loss(
         self, gated_features: torch.Tensor, xrd_map: torch.Tensor
     ) -> torch.Tensor:
         B, C, H, W = gated_features.shape
-        feat_flat = gated_features.float().reshape(B, C, -1).permute(0, 2, 1)  # (B, H*W, C)
+        feat_flat = (
+            gated_features.float().reshape(B, C, -1).permute(0, 2, 1)
+        )  # (B, H*W, C)
         pred = self.pred_head(feat_flat).squeeze(-1)  # (B, H*W) — float32
         target = xrd_map.reshape(1, -1).expand(B, -1).float()
+
+        if self.loss_fn == "bce":
+            n_pos = target.sum().clamp(min=1)
+            n_neg = (1 - target).sum().clamp(min=1)
+            pos_weight = (n_neg / n_pos).to(pred.device)
+            return F.binary_cross_entropy_with_logits(
+                pred, target, pos_weight=pos_weight
+            )
 
         pred_c = pred - pred.mean(dim=-1, keepdim=True)
         target_c = target - target.mean(dim=-1, keepdim=True)
@@ -322,6 +340,7 @@ class XFuse(HighResDV2):
         pca_dim: int,
         track_grad: bool = False,
         dtype: torch.dtype | int = torch.float16,
+        loss_fn: LossOptions = "bce",
         *args,
         **kwargs,
     ):
@@ -405,7 +424,9 @@ class XFuse(HighResDV2):
 
         # Initialize fusion modules based on method
         if xrd_fuse_method == "learned_gating":
-            self.learned_gating = LearnedChannelGating(feat_dim=self.feat_dim)
+            self.learned_gating = LearnedChannelGating(
+                feat_dim=self.feat_dim, loss_fn=loss_fn
+            )
         else:
             self.learned_gating = None
 
