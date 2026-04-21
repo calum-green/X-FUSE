@@ -102,12 +102,16 @@ class LearnedChannelGating(nn.Module):
         self, gated_features: torch.Tensor, xrd_map: torch.Tensor
     ) -> torch.Tensor:
         B, C, H, W = gated_features.shape
-        feat_flat = gated_features.reshape(B, C, -1).permute(0, 2, 1)  # (B, H*W, C)
-        pred = (
-            self.pred_head(feat_flat).squeeze(-1).float()
-        )  # cast to fp32 to avoid overflow
+        feat_flat = gated_features.float().reshape(B, C, -1).permute(0, 2, 1)  # (B, H*W, C)
+        pred = self.pred_head(feat_flat).squeeze(-1)  # (B, H*W) — float32
         target = xrd_map.reshape(1, -1).expand(B, -1).float()
-        return F.mse_loss(pred, target)
+
+        pred_c = pred - pred.mean(dim=-1, keepdim=True)
+        target_c = target - target.mean(dim=-1, keepdim=True)
+        corr = (pred_c * target_c).sum(dim=-1) / (
+            pred_c.norm(dim=-1) * target_c.norm(dim=-1) + 1e-8
+        )
+        return (1 - corr).mean()
 
     def forward(self, features: torch.Tensor, xrd_map: torch.Tensor) -> torch.Tensor:
         """
