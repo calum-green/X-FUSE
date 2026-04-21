@@ -30,6 +30,7 @@ def get_qkvo_per_head(
     x_a: torch.Tensor,
     which: AttentionOptions,
     drop_fn: Callable,
+    n_heads: int,
 ) -> torch.Tensor:
     """Return either the mean q, k, v per head for tokens or the attn for the CLS
     token per head. Note that using mem eff attn means we need to explicitly
@@ -69,7 +70,7 @@ def get_qkvo_per_head(
             x_a_cls = x_a_cls[:, None, :, :]
             cls_attn = x_a_cls.permute(0, 2, 1, 3) @ v.permute(0, 2, 3, 1)
             cls_attn = cls_attn.squeeze(2).permute(0, 2, 1)
-            per_head = cls_attn.reshape([B, T, nH])
+            per_head = cls_attn.reshape([B, T, n_heads])
         case _:
             raise Exception("not valid attention option")
     return per_head
@@ -200,7 +201,9 @@ class Patch:
             x = memory_efficient_attention(q, k, v, attn_bias=attn_bias)
             to_append: torch.Tensor
             if attn_choice != "none":
-                to_append = get_qkvo_per_head(q, k, v, x, attn_choice, self.attn_drop)
+                to_append = get_qkvo_per_head(
+                    q, k, v, x, attn_choice, self.attn_drop, self.n_heads
+                )
 
             x = x.reshape([B, N, C])
 

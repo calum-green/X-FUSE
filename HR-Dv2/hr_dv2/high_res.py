@@ -14,7 +14,9 @@ from .transform import iden_partial
 from functools import partial
 from typing import List, Tuple, TypeAlias, Literal
 
-Interpolation: TypeAlias = Literal["nearest", "linear", "bilinear", "bicubic", "trilinear", "area", "nearest-exact"]
+Interpolation: TypeAlias = Literal[
+    "nearest", "linear", "bilinear", "bicubic", "trilinear", "area", "nearest-exact"
+]
 AttentionOptions: TypeAlias = Literal["q", "k", "v", "o", "none"]
 
 
@@ -40,8 +42,12 @@ class HighResDV2(nn.Module):
         elif "dinov3" in dino_name:
             lib_path = kwargs["lib_path"]
             chk_path = kwargs["chk_path"]
-            assert (chk_path is not None) and (lib_path is not None), "Must supply a local checkpoint for DINOv3!"
-            self.dinov2 = torch.hub.load(lib_path, "dinov3_vits16plus", source="local", weights=chk_path)
+            assert (chk_path is not None) and (
+                lib_path is not None
+            ), "Must supply a local checkpoint for DINOv3!"
+            self.dinov2 = torch.hub.load(
+                lib_path, "dinov3_vits16plus", source="local", weights=chk_path
+            )
         elif "dino" in dino_name:
             hub_path = "facebookresearch/dino:main"
             self.dinov2 = torch.hub.load(hub_path, dino_name)
@@ -67,13 +73,13 @@ class HighResDV2(nn.Module):
             self.dinov2.num_register_tokens = 0  # type: ignore
 
         # Get params of Dv2 model and store references to original settings & methods
-        feat, patch = self.get_model_params(dino_name)
+        feat, patch, n_heads = self.get_model_params(dino_name)
         self.original_patch_size: int = patch
         self.original_stride = _pair(patch)
         # may need to deepcopy this instead of just referencing
         # self.original_pos_enc = self.dinov2.interpolate_pos_encoding
         self.feat_dim: int = feat
-        self.n_heads: int = 6
+        self.n_heads: int = n_heads
         self.n_register_tokens = 4
 
         self.stride = _pair(stride)
@@ -89,12 +95,15 @@ class HighResDV2(nn.Module):
         self.do_pca = pca_dim > 3
 
         # If we want to save memory, change to float16
-        if type(dtype) == int:
+        if type(dtype) is int:
             dtype = torch.float16 if dtype == 16 else torch.float32
 
         self.dtype = dtype
+        device = kwargs.get("device", None)
         if dtype != torch.float32:
-            self = self.to(dtype)
+            self.dinov2 = self.dinov2.to(dtype)
+        if device is not None:
+            self.dinov2 = self.dinov2.to(device)
         self.track_grad = track_grad  # off by default to save memory
 
         self.patch_last_block(self.dinov2, dino_name)
@@ -111,10 +120,14 @@ class HighResDV2(nn.Module):
         model = split_name[1]
         arch, patch_size = model[3], int(model[4:])
         feat_dim_lookup = {"s": 384, "b": 768, "l": 1024, "g": 1536}
+        n_heads_lookup = {"s": 6, "b": 12, "l": 16, "g": 16}
         feat_dim: int = feat_dim_lookup[arch]
-        return feat_dim, patch_size
+        n_heads: int = n_heads_lookup[arch]
+        return feat_dim, patch_size, n_heads
 
-    def set_model_stride(self, dino_model: nn.Module, stride_l: int, verbose: bool = False) -> None:
+    def set_model_stride(
+        self, dino_model: nn.Module, stride_l: int, verbose: bool = False
+    ) -> None:
         """Create new positional encoding interpolation method for $dino_model with
         supplied $stride, and set the stride of the patch embedding projection conv2D
         to $stride.
@@ -192,13 +205,19 @@ class HighResDV2(nn.Module):
         n_patch_w: int = 1 + (img_w - self.original_patch_size) // stride_l
         return (n_patch_h, n_patch_w)
 
-    def set_transforms(self, transforms: List[partial], inv_transforms: List[partial]) -> None:
-        assert len(transforms) == len(inv_transforms), "Each transform must have an inverse!"
+    def set_transforms(
+        self, transforms: List[partial], inv_transforms: List[partial]
+    ) -> None:
+        assert len(transforms) == len(
+            inv_transforms
+        ), "Each transform must have an inverse!"
         self.transforms = transforms
         self.inverse_transforms = inv_transforms
 
     @torch.no_grad()
-    def get_transformed_input_batch(self, x: torch.Tensor, transforms: List[partial]) -> torch.Tensor:
+    def get_transformed_input_batch(
+        self, x: torch.Tensor, transforms: List[partial]
+    ) -> torch.Tensor:
         """Loop through a list of (invertible) transforms, apply them to input $x, store
         in a list then batch and return.
 
@@ -229,7 +248,9 @@ class HighResDV2(nn.Module):
         return img_batch
 
     @torch.no_grad()
-    def invert_transforms(self, feature_batch: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+    def invert_transforms(
+        self, feature_batch: torch.Tensor, x: torch.Tensor
+    ) -> torch.Tensor:
         """For each flat Dv2 features of our transformed imgs in $feature_batch, loop through,
         make them spatial again by reshaping, permuting and resizing, then perform the
         corresponding inverse transform and add to our summand variable. Finally we divide by
@@ -313,7 +334,9 @@ class HighResDV2(nn.Module):
         return upsampled_features
 
     @torch.no_grad()
-    def forward_sequential(self, x: torch.Tensor, attn_choice: AttentionOptions = "none") -> torch.Tensor:
+    def forward_sequential(
+        self, x: torch.Tensor, attn_choice: AttentionOptions = "none"
+    ) -> torch.Tensor:
         """Perform transform -> featurise -> upscale -> inverse -> average forward pass
         sequentially, performing more calls to DINOv2 but reducing the memory overhead.
 
@@ -384,7 +407,9 @@ class TorchPCA(object):
     def fit(self, X):
         self.mean_ = X.mean(dim=0)
         unbiased = X - self.mean_.unsqueeze(0)
-        U, S, V = torch.pca_lowrank(unbiased, q=self.n_components, center=False, niter=4)
+        U, S, V = torch.pca_lowrank(
+            unbiased, q=self.n_components, center=False, niter=4
+        )
         self.components_ = V.T
         self.singular_values_ = S
         return self
