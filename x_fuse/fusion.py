@@ -128,6 +128,10 @@ class LearnedChannelGating(nn.Module):
         elif xrd_map.dim() == 3:
             xrd_map = xrd_map.unsqueeze(0)
 
+        orig_dtype = features.dtype
+        features = features.float()
+        xrd_map = xrd_map.float()
+
         # Flatten spatial dimensions
         feat_flat = features.reshape(B, C, -1)  # (B, C, H*W)
         xrd_flat = xrd_map.reshape(-1, 1)  # (H*W, 1)
@@ -139,7 +143,7 @@ class LearnedChannelGating(nn.Module):
         gated_flat = feat_flat.permute(0, 2, 1) * gates.unsqueeze(0)  # (B, H*W, C)
         gated = gated_flat.permute(0, 2, 1).reshape(features.shape)  # (B, C, H, W)
 
-        return gated
+        return gated.to(orig_dtype)
 
 
 class XRDFusionMethod(nn.Module):
@@ -419,8 +423,6 @@ class XFuse(HighResDV2):
         device = kwargs.get("device", None)
         if dtype != torch.float32:
             self.dinov2 = self.dinov2.to(dtype)
-            if self.learned_gating is not None:
-                self.learned_gating = self.learned_gating.to(dtype)
         if device is not None:
             self.dinov2 = self.dinov2.to(device)
             if self.learned_gating is not None:
