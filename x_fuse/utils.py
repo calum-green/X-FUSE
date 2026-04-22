@@ -190,7 +190,6 @@ def get_alibi_model(
         wrap=True,
         add_cls=add_cls,
         n_reg_tokens=n_reg_tokens,
-        jitter_mag=jitter_mag,
     )
     model.load_state_dict(weights)
     return model
