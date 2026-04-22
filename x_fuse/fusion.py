@@ -84,36 +84,22 @@ LossOptions: TypeAlias = Literal["pearson", "bce"]
 
 
 class LearnedChannelGating(nn.Module):
-    """Learn to gate channels based on XRD intensity."""
+    """Linear probe to rank DINO channels by XRD relevance, then hard-select top-K."""
 
-    def __init__(self, feat_dim: int = 384, loss_fn: LossOptions = "pearson"):
+    def __init__(self, feat_dim: int = 384, loss_fn: LossOptions = "bce"):
         super().__init__()
         self.feat_dim = feat_dim
         self.loss_fn = loss_fn
-
-        hidden_dim = max(128, feat_dim // 4)
-        # MLP: XRD intensity (1,) → channel gates (feat_dim,)
-        self.mlp = nn.Sequential(
-            nn.Linear(1, 64),
-            nn.ReLU(),
-            nn.Linear(64, hidden_dim),
-            nn.ReLU(),
-            nn.Linear(hidden_dim, feat_dim),
-            nn.Sigmoid(),  # Output [0, 1]
-        )
-
-        # Predicts XRD intensity from gated features — used as training signal
-        # BCE mode: raw logits (no activation); Pearson mode: unbounded scalar
         self.pred_head = nn.Linear(feat_dim, 1)
+        self._channel_mask: torch.Tensor | None = None
 
     def compute_loss(
-        self, gated_features: torch.Tensor, xrd_map: torch.Tensor
+        self, features: torch.Tensor, xrd_map: torch.Tensor
     ) -> torch.Tensor:
-        B, C, H, W = gated_features.shape
-        feat_flat = (
-            gated_features.float().reshape(B, C, -1).permute(0, 2, 1)
-        )  # (B, H*W, C)
-        pred = self.pred_head(feat_flat).squeeze(-1)  # (B, H*W) — float32
+        """Train the linear probe on raw (un-gated) features."""
+        B, C, H, W = features.shape
+        feat_flat = features.float().reshape(B, C, -1).permute(0, 2, 1)  # (B, H*W, C)
+        pred = self.pred_head(feat_flat).squeeze(-1)  # (B, H*W)
         target = xrd_map.reshape(1, -1).expand(B, -1).float()
 
         if self.loss_fn == "bce":
@@ -131,41 +117,24 @@ class LearnedChannelGating(nn.Module):
         )
         return (1 - corr).mean()
 
-    def forward(self, features: torch.Tensor, xrd_map: torch.Tensor) -> torch.Tensor:
+    def select_top_k(self, k: int) -> None:
+        """Derive a hard channel mask from probe weights after training.
+
+        Channels with the highest absolute weight in pred_head are the ones
+        the linear probe found most predictive of the XRD signal.
         """
-        Apply learned gating: for each spatial location, compute channel gates from XRD.
+        weights = self.pred_head.weight.data.squeeze(0).abs()  # (feat_dim,)
+        top_k = weights.topk(k).indices
+        mask = torch.zeros(self.feat_dim, device=weights.device)
+        mask[top_k] = 1.0
+        self._channel_mask = mask
 
-        Args:
-            features: (B, C, H, W) DINO features
-            xrd_map: (1, 1, H, W) or (H, W) XRD intensity map
-
-        Returns:
-            gated_features: (B, C, H, W) with per-location, per-channel gating
-        """
-        B, C = features.shape[:2]
-
-        # Ensure xrd_map has same spatial dims as features
-        if xrd_map.dim() == 2:
-            xrd_map = xrd_map.unsqueeze(0).unsqueeze(0)
-        elif xrd_map.dim() == 3:
-            xrd_map = xrd_map.unsqueeze(0)
-
-        orig_dtype = features.dtype
-        features = features.float()
-        xrd_map = xrd_map.float()
-
-        # Flatten spatial dimensions
-        feat_flat = features.reshape(B, C, -1)  # (B, C, H*W)
-        xrd_flat = xrd_map.reshape(-1, 1)  # (H*W, 1)
-
-        # Pass all spatial locations through MLP in one batched call
-        gates = self.mlp(xrd_flat)  # (H*W, feat_dim)
-
-        # Apply gates to features
-        gated_flat = feat_flat.permute(0, 2, 1) * gates.unsqueeze(0)  # (B, H*W, C)
-        gated = gated_flat.permute(0, 2, 1).reshape(features.shape)  # (B, C, H, W)
-
-        return gated.to(orig_dtype)
+    def forward(self, features: torch.Tensor, _xrd_map: torch.Tensor) -> torch.Tensor:
+        """Zero out all channels not in the top-K mask."""
+        if self._channel_mask is None:
+            return features
+        mask = self._channel_mask.to(features.device).view(1, -1, 1, 1)
+        return features * mask
 
 
 class XRDFusionMethod(nn.Module):
@@ -176,6 +145,7 @@ class XRDFusionMethod(nn.Module):
         require_grad: bool = False,
         learned_gating: nn.Module = None,
         spatial_attention: nn.Module = None,
+        loss_fn: LossOptions = "pearson",
     ):
         super().__init__()
 
@@ -185,6 +155,7 @@ class XRDFusionMethod(nn.Module):
         self.transform = transform
         self.learned_gating_module = learned_gating
         self.spatial_attention_module = spatial_attention
+        self.loss_fn = loss_fn
 
     def get_tr(self) -> torch.Tensor:
         """Apply all transforms to XRD data and return as a batch.
@@ -203,12 +174,13 @@ class XRDFusionMethod(nn.Module):
         x: torch.Tensor,  # [B,C,H,W] transformed DINO features
         idx: int,  # index of the transform applied to the input image
         xrd_fusion_method: FusionOptions,
+        top_k: int | None = None,
     ):
         # return transformed XRD features ready to be fused with the DINO features
         tr_xrd = self.get_tr()[idx]
 
         if xrd_fusion_method == "gating":
-            return self._direct_correlation_gating(x, tr_xrd)
+            return self._direct_correlation_gating(x, tr_xrd, top_k=top_k)
 
         elif xrd_fusion_method == "learned_gating":
             return self._learned_channel_gating(x, tr_xrd)
@@ -217,20 +189,30 @@ class XRDFusionMethod(nn.Module):
             return self._spatial_attention(x, tr_xrd)
 
     def _direct_correlation_gating(
-        self, features: torch.Tensor, xrd_map: torch.Tensor
+        self, features: torch.Tensor, xrd_map: torch.Tensor, top_k: int | None = None
     ) -> torch.Tensor:
         """
-        Compute per-channel correlation with XRD, use as gate weights.
+        Compute per-channel score against XRD map, use as soft gate weights.
+
+        Pearson: weight = correlation clipped to [0, 1] (higher = better match).
+        BCE: weight = 1 - normalised_loss (lower loss = better match = higher weight).
+
+        If top_k is set, only the top_k scoring channels are kept (others zeroed).
+        Defaults to C // 4.
 
         Args:
             features: (B, C, H, W) DINO features
-            xrd_map: (1, 3, H, W)
+            xrd_map: (1, 1, H, W)
+            top_k: number of channels to keep (default: C // 4)
 
         Returns:
             gated_features: (B, C, H, W) with gates applied per channel
         """
         B, C, H, W = features.shape
         B_xrd, C_xrd, H_xrd, W_xrd = xrd_map.shape
+
+        if top_k is None:
+            top_k = C // 4
 
         # Ensure xrd_map has same spatial dims as features
         xrd_map = F.interpolate(
@@ -241,25 +223,37 @@ class XRDFusionMethod(nn.Module):
         )
 
         # Flatten spatial dimensions for correlation computation
-        feat_flat = features.reshape(B, C, -1)  # (B, C, H*W)
-        xrd_flat = xrd_map.reshape(-1)  # (B_xrd, C_xrd, H_xrd*W_xrd)
+        feat_flat = features.float().reshape(B, C, -1)  # (B, C, H*W)
+        xrd_flat = xrd_map.reshape(-1).float()           # (H*W,)
 
-        # Compute correlation between each channel and XRD
+        # Compute per-channel score against XRD
         gates = []
         for ch in range(C):
-            # Correlation across all batch and spatial locations
+            # Score each channel across all batch and spatial locations
             feat_ch = feat_flat[:, ch, :].reshape(-1)  # (B*H*W,)
 
-            if feat_ch.shape[0] > 1:
-                corr = torch.corrcoef(torch.stack([feat_ch, xrd_flat]))[0, 1]
-            else:
-                corr = torch.tensor(0.0, device=features.device, dtype=features.dtype)
+            if self.loss_fn == "pearson":
+                if feat_ch.shape[0] > 1:
+                    score = torch.corrcoef(torch.stack([feat_ch, xrd_flat]))[0, 1]
+                else:
+                    score = torch.tensor(0.0, device=features.device)
+                score = torch.nan_to_num(score, nan=0.0).clamp(0, 1)
 
-            gates.append(corr)
+            else:  # bce
+                # Normalise channel to [0, 1] for BCE
+                ch_min, ch_max = feat_ch.min(), feat_ch.max()
+                ch_norm = (feat_ch - ch_min) / (ch_max - ch_min + 1e-8)
+                bce = F.binary_cross_entropy(ch_norm, xrd_flat, reduction="mean")
+                # Invert so high score = good match; max BCE is log(2) ≈ 0.693
+                score = (1 - bce / 0.693).clamp(0, 1)
 
-        gates = torch.stack(gates)  # (C,)
-        gates = torch.nan_to_num(gates, nan=0.0)
-        gates = torch.clamp(gates, 0, 1)  # Clamp to [0, 1]
+            gates.append(score)
+
+        gates = torch.stack(gates).to(features.dtype)  # (C,)
+
+        # Zero all but the top_k scoring channels
+        threshold = gates.topk(top_k).values[-1]
+        gates = gates * (gates >= threshold)
 
         # Apply gates: multiply each channel by its gate weight
         gated = features * gates.view(1, C, 1, 1)  # Broadcasting
@@ -421,6 +415,7 @@ class XFuse(HighResDV2):
 
         # define the fusion method for fusing the XRD features with the DINO features
         self.xrd_fuse_method = xrd_fuse_method
+        self.loss_fn = loss_fn
 
         # Initialize fusion modules based on method
         if xrd_fuse_method == "learned_gating":
@@ -465,13 +460,18 @@ class XFuse(HighResDV2):
 
     @torch.no_grad()
     def forward_sequential(
-        self, x: torch.Tensor, attn_choice: AttentionOptions = "none"
+        self,
+        x: torch.Tensor,
+        attn_choice: AttentionOptions = "none",
+        top_k: int | None = None,
     ) -> torch.Tensor:
         """Perform transform -> featurise -> upscale -> inverse -> average forward pass
         sequentially, performing more calls to DINOv2 but reducing the memory overhead.
 
         :param x: unbatched image tensor
         :type x: torch.Tensor
+        :param top_k: for 'gating' method, number of channels to keep (default: C // 4)
+        :type top_k: int | None
         :return: tuple of low-res Dv2 features and our upsample high-res Dv2 features
         :rtype: Tuple[torch.Tensor, torch.Tensor]
         """
@@ -518,7 +518,7 @@ class XFuse(HighResDV2):
             feat_patch = features.view((n_patch_h, n_patch_w, c))
             permuted = feat_patch.permute((2, 0, 1)).unsqueeze(0)
             fused_img = self.xrd_fusion_module.forward_xrd(
-                permuted, i, self.xrd_fuse_method
+                permuted, i, self.xrd_fuse_method, top_k=top_k
             )
 
             full_size = F.interpolate(
@@ -588,9 +588,8 @@ class XFuse(HighResDV2):
                 align_corners=False,
             )
 
-            # Gating forward pass WITH grad so MLP weights receive gradients
-            gated = self.learned_gating(permuted, tr_xrd)
-            loss = self.learned_gating.compute_loss(gated, tr_xrd)
+            # Train probe on raw features — no gating during training
+            loss = self.learned_gating.compute_loss(permuted, tr_xrd)
             total_loss = total_loss + loss.cpu().float()
             loss.backward()
 
@@ -609,4 +608,5 @@ class XFuse(HighResDV2):
             require_grad=self.track_grad,
             learned_gating=self.learned_gating,
             spatial_attention=self.spatial_attention,
+            loss_fn=self.loss_fn,
         )
