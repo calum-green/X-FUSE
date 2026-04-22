@@ -10,6 +10,8 @@ from timm import create_model
 from functools import partial
 from typing import List, TypeAlias, Literal
 
+from .utils import get_alibi_model
+
 
 Interpolation: TypeAlias = Literal[
     "nearest", "linear", "bilinear", "bicubic", "trilinear", "area", "nearest-exact"
@@ -224,7 +226,7 @@ class XRDFusionMethod(nn.Module):
 
         # Flatten spatial dimensions for correlation computation
         feat_flat = features.float().reshape(B, C, -1)  # (B, C, H*W)
-        xrd_flat = xrd_map.reshape(-1).float()           # (H*W,)
+        xrd_flat = xrd_map.reshape(-1).float()  # (H*W,)
 
         # Compute per-channel score against XRD
         gates = []
@@ -355,6 +357,13 @@ class XFuse(HighResDV2):
         )
 
         self.dinov2: nn.Module
+        device = kwargs.get("device", None)
+
+        if "alibi" in dino_name:
+            dino_name = dino_name
+            model_path = kwargs["model_path"]
+            self.dinov2 = get_alibi_model(dino_name, model_path, device=device)
+
         if "dinov2" in dino_name:
             hub_path = "facebookresearch/dinov2"
             self.dinov2 = torch.hub.load(hub_path, dino_name)
@@ -440,7 +449,6 @@ class XFuse(HighResDV2):
             dtype = torch.float16 if dtype == 16 else torch.float32
 
         self.dtype = dtype
-        device = kwargs.get("device", None)
         if dtype != torch.float32:
             self.dinov2 = self.dinov2.to(dtype)
         if device is not None:

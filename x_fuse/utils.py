@@ -5,6 +5,7 @@ import cv2
 import torch
 from PIL import Image
 import torchvision.transforms as transforms
+from .alibi import PretrainedViTWrapper, MODEL_LIST, AlibiVitWrapper
 
 
 def get_multiphase(
@@ -163,3 +164,34 @@ def xrd_to_tensor(xrd_img, device):
     t = (t - mn) / (mx - mn)
 
     return t.unsqueeze(0).to(device)  # (1, 1, H, W)
+
+
+def get_alibi_model(
+    model_type: str,
+    model_path: str,
+    device: str,
+    stride: int = 14,
+) -> PretrainedViTWrapper:
+    """
+    Load the ALiBi model from the specified directory and return a PretrainedViTWrapper instance.
+    """
+    weights = torch.load(model_path, weights_only=True, map_location=device)
+    slope_type = "learned" if "_l" in model_type else "constant"
+    add_cls = False if "nr" in model_type else True
+    n_reg_tokens = 0 if "nr" in model_type else 4
+    jitter_mag = 0.025 if "_j" in model_type else 0.0
+
+    model = AlibiVitWrapper(
+        MODEL_LIST[1],
+        stride=stride,
+        add_flash_attn=False,
+        device=device,
+        slope_type=slope_type,
+        normalize=True,
+        wrap=True,
+        add_cls=add_cls,
+        n_reg_tokens=n_reg_tokens,
+        jitter_mag=jitter_mag,
+    )
+    model.load_state_dict(weights)
+    return model
