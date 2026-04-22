@@ -22,7 +22,7 @@ from timm.layers.attention import Attention
 from timm.models.vision_transformer import VisionTransformer, Block
 
 
-from typing import Type, Literal, Optional
+from typing import Type, Literal, Optional, Callable
 
 
 import re
