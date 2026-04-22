@@ -491,6 +491,7 @@ class AlibiBlock(Block):
         act_layer: Type[nn.Module] = nn.GELU,
         norm_layer: Type[nn.Module] = nn.LayerNorm,
         mlp_layer: Type[nn.Module] = Mlp,
+        **kwargs,
     ) -> None:
         super().__init__(
             dim=dim,
@@ -498,6 +499,8 @@ class AlibiBlock(Block):
             mlp_ratio=mlp_ratio,
             qkv_bias=qkv_bias,
             qk_norm=qk_norm,
+            scale_attn_norm=scale_attn_norm,
+            scale_mlp_norm=scale_mlp_norm,
             proj_bias=proj_bias,
             proj_drop=proj_drop,
             attn_drop=attn_drop,
@@ -506,6 +509,7 @@ class AlibiBlock(Block):
             act_layer=act_layer,
             norm_layer=norm_layer,
             mlp_layer=mlp_layer,
+            **kwargs,
         )
         self.attn = AlibiAttention(
             distance_matrix,
