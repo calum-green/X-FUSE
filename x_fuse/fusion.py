@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from timm import create_model
 
 from functools import partial
-from typing import List, TypeAlias, Literal
+from typing import List, TypeAlias, Literal, Callable
 
 from .utils import get_alibi_model
 
