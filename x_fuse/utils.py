@@ -184,7 +184,6 @@ def get_alibi_model(
     model = AlibiVitWrapper(
         MODEL_LIST[1],
         stride=stride,
-        add_flash_attn=False,
         device=device,
         slope_type=slope_type,
         normalize=True,

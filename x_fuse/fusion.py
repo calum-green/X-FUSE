@@ -4,11 +4,12 @@ import torch.nn as nn
 from torch.nn.modules.utils import _pair
 
 import torch.nn.functional as F
+import re
 
 from timm import create_model
 
 from functools import partial
-from typing import List, TypeAlias, Literal, Callable
+from typing import List, Tuple, TypeAlias, Literal, Callable
 
 from .utils import get_alibi_model
 
@@ -465,6 +466,16 @@ class XFuse(HighResDV2):
             self.fusion_optimizer = None
 
         self.patch_last_block(self.dinov2, dino_name)
+
+    def get_model_params(self, dino_name: str) -> Tuple[int, int, int]:
+        for segment in dino_name.split("_"):
+            m = re.match(r"^vit([sblg])(\d+)$", segment)
+            if m:
+                arch, patch_size = m.group(1), int(m.group(2))
+                feat_dim_lookup = {"s": 384, "b": 768, "l": 1024, "g": 1536}
+                n_heads_lookup = {"s": 6, "b": 12, "l": 16, "g": 16}
+                return feat_dim_lookup[arch], patch_size, n_heads_lookup[arch]
+        return super().get_model_params(dino_name)
 
     @torch.no_grad()
     def forward_sequential(
