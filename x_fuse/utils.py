@@ -181,8 +181,18 @@ def get_alibi_model(
     n_reg_tokens = 0 if "nr" in model_type else 4
     jitter_mag = 0.025 if "_j" in model_type else 0.0
 
+    arch_to_model = {
+        "vits": MODEL_LIST[1] if n_reg_tokens > 0 else MODEL_LIST[0],
+        "vitb": MODEL_LIST[3],
+        "vitl": MODEL_LIST[15],
+        "vitg": MODEL_LIST[16],
+    }
+    base_model = next(
+        (v for k, v in arch_to_model.items() if k in model_type), MODEL_LIST[1]
+    )
+
     model = AlibiVitWrapper(
-        MODEL_LIST[1],
+        base_model,
         stride=stride,
         device=device,
         slope_type=slope_type,

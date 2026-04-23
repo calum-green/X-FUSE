@@ -364,7 +364,7 @@ class XFuse(HighResDV2):
         if "alibi" in dino_name:
             dino_name = dino_name
             model_path = kwargs["model_path"]
-            self.dinov2 = get_alibi_model(dino_name, model_path, device=device)
+            self.dinov2 = get_alibi_model(dino_name, model_path, device=device, stride=stride)
 
         elif "dinov2" in dino_name:
             hub_path = "facebookresearch/dinov2"
@@ -467,18 +467,6 @@ class XFuse(HighResDV2):
             self.fusion_optimizer = None
 
         self.patch_last_block(self.dinov2, dino_name)
-
-    def set_model_stride(self, dino_model: nn.Module, stride_l: int, verbose: bool = False) -> None:
-        inner = getattr(dino_model, "model", None)
-        if inner is not None and hasattr(inner, "patch_embed"):
-            new_stride_pair = _pair(stride_l)
-            self.stride = new_stride_pair
-            inner.patch_embed.proj.stride = new_stride_pair
-            dino_model.stride = stride_l  # keep wrapper stride in sync for distance-matrix grid
-            if verbose:
-                print(f"Setting stride to ({stride_l},{stride_l})")
-        else:
-            super().set_model_stride(dino_model, stride_l, verbose)
 
     def patch_last_block(self, dino_model: nn.Module, dino_name: str) -> None:
         if "alibi" not in dino_name:
