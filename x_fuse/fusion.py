@@ -366,7 +366,7 @@ class XFuse(HighResDV2):
             model_path = kwargs["model_path"]
             self.dinov2 = get_alibi_model(dino_name, model_path, device=device)
 
-        if "dinov2" in dino_name:
+        elif "dinov2" in dino_name:
             hub_path = "facebookresearch/dinov2"
             self.dinov2 = torch.hub.load(hub_path, dino_name)
         elif "dinov3" in dino_name:
@@ -475,7 +475,7 @@ class XFuse(HighResDV2):
 
         def forward_feats_attn(self_model, x, masks=None, attn_choice="none"):
             feats = self_model.forward_features(x)  # (B, C, N_patches)
-            feats = feats.permute(0, 2, 1)          # (B, N_patches, C)
+            feats = feats.permute(0, 2, 1)  # (B, N_patches, C)
             return {"x_norm_patchtokens": feats, "masks": masks}
 
         dino_model.forward_feats_attn = MethodType(forward_feats_attn, dino_model)
