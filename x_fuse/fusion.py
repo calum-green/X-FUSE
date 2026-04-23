@@ -468,6 +468,17 @@ class XFuse(HighResDV2):
 
         self.patch_last_block(self.dinov2, dino_name)
 
+    def set_model_stride(self, dino_model: nn.Module, stride_l: int, verbose: bool = False) -> None:
+        try:
+            new_stride_pair = _pair(stride_l)
+            self.stride = new_stride_pair
+            dino_model.model.patch_embed.proj.stride = new_stride_pair
+            dino_model.stride = stride_l
+            if verbose:
+                print(f"Setting stride to ({stride_l},{stride_l})")
+        except AttributeError:
+            super().set_model_stride(dino_model, stride_l, verbose)
+
     def patch_last_block(self, dino_model: nn.Module, dino_name: str) -> None:
         if "alibi" not in dino_name:
             super().patch_last_block(dino_model, dino_name)
