@@ -443,7 +443,7 @@ class AlibiAttention(Attention):
         else:
             raise Exception(f"Unexpected slope type {type(m)}")
 
-    def forward(self, x: torch.Tensor, attn_mask=None, attn_bias=None) -> torch.Tensor:
+    def forward(self, x: torch.Tensor, attn_mask=None, attn_bias=None, **kwargs) -> torch.Tensor:
         B, N, C = x.shape
 
         qkv = (
