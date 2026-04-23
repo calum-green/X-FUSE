@@ -17,6 +17,7 @@ dependencies = [
     "hr_dv2",
     "ipykernel>=7.2.0",
     "jupyter>=1.1.1",
+    "open-clip-torch>=3.3.0",
     "opencv-python>=4.13.0.92",
     "porespy>=3.0.2",
     "sam2>=1.1.0",
