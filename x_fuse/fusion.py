@@ -2,6 +2,7 @@ from hr_dv2.high_res import HighResDV2
 import torch
 import torch.nn as nn
 from torch.nn.modules.utils import _pair
+from types import MethodType
 
 import torch.nn.functional as F
 import re
@@ -466,6 +467,18 @@ class XFuse(HighResDV2):
             self.fusion_optimizer = None
 
         self.patch_last_block(self.dinov2, dino_name)
+
+    def patch_last_block(self, dino_model: nn.Module, dino_name: str) -> None:
+        if "alibi" not in dino_name:
+            super().patch_last_block(dino_model, dino_name)
+            return
+
+        def forward_feats_attn(self_model, x, masks=None, attn_choice="none"):
+            feats = self_model.forward_features(x)  # (B, C, N_patches)
+            feats = feats.permute(0, 2, 1)          # (B, N_patches, C)
+            return {"x_norm_patchtokens": feats, "masks": masks}
+
+        dino_model.forward_feats_attn = MethodType(forward_feats_attn, dino_model)
 
     def get_model_params(self, dino_name: str) -> Tuple[int, int, int]:
         for segment in dino_name.split("_"):
