@@ -11,6 +11,7 @@ authors = [
     { name = "Calum Green", email = "calum.green17@imperial.ac.uk" },
 ]
 dependencies = [
+    "clip>=0.2.0",
     "featup",
     "h5py>=3.16.0",
     "hr_dv2",
@@ -18,6 +19,7 @@ dependencies = [
     "jupyter>=1.1.1",
     "opencv-python>=4.13.0.92",
     "porespy>=3.0.2",
+    "sam2>=1.1.0",
     "torch<=2.6",
 ]
 
