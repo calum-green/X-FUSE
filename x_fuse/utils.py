@@ -186,6 +186,7 @@ def get_alibi_model(
         "vitb": MODEL_LIST[3],
         "vitl": MODEL_LIST[15],
         "vitg": MODEL_LIST[16],
+        "vit7b": MODEL_LIST[19],
     }
     base_model = next(
         (v for k, v in arch_to_model.items() if k in model_type), MODEL_LIST[1]

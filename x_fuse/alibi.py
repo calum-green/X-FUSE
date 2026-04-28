@@ -63,6 +63,10 @@ MODEL_LIST = [
     # extra added models
     "vit_large_patch14_reg4_dinov2.lvd142m",  # DINOv2 large
     "vit_giant_patch14_reg4_dinov2.lvd142m",  # DINOv2 giant
+    # DINOv3 models
+    "vit_small_patch16_dinov3.lvd1689m",  # DINOv3 small
+    "vit_large_patch16_dinov3.lvd1689m",  # DINOv3 large
+    "vit_7b_patch16_dinov3.lvd1689m",  # DINOv3 7b
 ]
 DEFAULT_MODEL = MODEL_LIST[1]
 
@@ -443,7 +447,9 @@ class AlibiAttention(Attention):
         else:
             raise Exception(f"Unexpected slope type {type(m)}")
 
-    def forward(self, x: torch.Tensor, attn_mask=None, attn_bias=None, **kwargs) -> torch.Tensor:
+    def forward(
+        self, x: torch.Tensor, attn_mask=None, attn_bias=None, **kwargs
+    ) -> torch.Tensor:
         B, N, C = x.shape
 
         qkv = (

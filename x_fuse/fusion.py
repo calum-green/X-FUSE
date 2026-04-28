@@ -364,7 +364,16 @@ class XFuse(HighResDV2):
         if "alibi" in dino_name:
             dino_name = dino_name
             model_path = kwargs["model_path"]
-            self.dinov2 = get_alibi_model(dino_name, model_path, device=device, stride=stride)
+            self.dinov2 = get_alibi_model(
+                dino_name, model_path, device=device, stride=stride
+            )
+
+        elif "nope" in dino_name:
+            dino_name = dino_name
+            model_path = kwargs["model_path"]
+            self.dinov2 = get_alibi_model(
+                dino_name, model_path, device=device, stride=stride
+            )
 
         elif "dinov2" in dino_name:
             hub_path = "facebookresearch/dinov2"
@@ -468,7 +477,9 @@ class XFuse(HighResDV2):
 
         self.patch_last_block(self.dinov2, dino_name)
 
-    def set_model_stride(self, dino_model: nn.Module, stride_l: int, verbose: bool = False) -> None:
+    def set_model_stride(
+        self, dino_model: nn.Module, stride_l: int, verbose: bool = False
+    ) -> None:
         try:
             new_stride_pair = _pair(stride_l)
             self.stride = new_stride_pair
