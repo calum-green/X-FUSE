@@ -491,7 +491,7 @@ class XFuse(HighResDV2):
             super().set_model_stride(dino_model, stride_l, verbose)
 
     def patch_last_block(self, dino_model: nn.Module, dino_name: str) -> None:
-        if "alibi" not in dino_name:
+        if "alibi" not in dino_name and "nope" not in dino_name:
             super().patch_last_block(dino_model, dino_name)
             return
 
@@ -504,7 +504,7 @@ class XFuse(HighResDV2):
 
     def get_model_params(self, dino_name: str) -> Tuple[int, int, int]:
         for segment in dino_name.split("_"):
-            m = re.match(r"^vit([sblg])(\d+)$", segment)
+            m = re.match(r"^vit([sblg])(\d+)", segment)
             if m:
                 arch, patch_size = m.group(1), int(m.group(2))
                 feat_dim_lookup = {"s": 384, "b": 768, "l": 1024, "g": 1536}

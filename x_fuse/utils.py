@@ -181,15 +181,23 @@ def get_alibi_model(
     n_reg_tokens = 0 if "nr" in model_type else 4
     jitter_mag = 0.025 if "_j" in model_type else 0.0
 
-    arch_to_model = {
-        "vits": MODEL_LIST[1] if n_reg_tokens > 0 else MODEL_LIST[0],
-        "vitb": MODEL_LIST[3],
-        "vitl": MODEL_LIST[15],
-        "vitg": MODEL_LIST[16],
-        "vit7b": MODEL_LIST[19],
-    }
+    is_dv3 = "dv3" in model_type
+    if is_dv3:
+        arch_to_model = {
+            "vits": MODEL_LIST[17],  # vit_small_patch16_dinov3.lvd1689m
+            "vitl": MODEL_LIST[18],  # vit_large_patch16_dinov3.lvd1689m
+            "vitg": MODEL_LIST[19],  # vit_7b_patch16_dinov3.lvd1689m
+        }
+    else:
+        arch_to_model = {
+            "vits": MODEL_LIST[1] if n_reg_tokens > 0 else MODEL_LIST[0],
+            "vitb": MODEL_LIST[3],
+            "vitl": MODEL_LIST[15],
+            "vitg": MODEL_LIST[16],
+        }
+    default_model = MODEL_LIST[17] if is_dv3 else MODEL_LIST[1]
     base_model = next(
-        (v for k, v in arch_to_model.items() if k in model_type), MODEL_LIST[1]
+        (v for k, v in arch_to_model.items() if k in model_type), default_model
     )
 
     model = AlibiVitWrapper(
