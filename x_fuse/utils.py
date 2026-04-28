@@ -5,7 +5,11 @@ import cv2
 import torch
 from PIL import Image
 import torchvision.transforms as transforms
-from .alibi import PretrainedViTWrapper, MODEL_LIST, AlibiVitWrapper
+import torch.nn as nn
+import torch.nn.functional as F
+from types import MethodType
+from torch.nn.modules.utils import _pair
+from .alibi import PretrainedViTWrapper, MODEL_LIST, AlibiVitWrapper, DistanceMatrixWrapper, get_alibi_slope
 
 
 def get_multiphase(
@@ -181,23 +185,14 @@ def get_alibi_model(
     n_reg_tokens = 0 if "nr" in model_type else 4
     jitter_mag = 0.025 if "_j" in model_type else 0.0
 
-    is_dv3 = "dv3" in model_type
-    if is_dv3:
-        arch_to_model = {
-            "vits": MODEL_LIST[17],  # vit_small_patch16_dinov3.lvd1689m
-            "vitl": MODEL_LIST[18],  # vit_large_patch16_dinov3.lvd1689m
-            "vitg": MODEL_LIST[19],  # vit_7b_patch16_dinov3.lvd1689m
-        }
-    else:
-        arch_to_model = {
-            "vits": MODEL_LIST[1] if n_reg_tokens > 0 else MODEL_LIST[0],
-            "vitb": MODEL_LIST[3],
-            "vitl": MODEL_LIST[15],
-            "vitg": MODEL_LIST[16],
-        }
-    default_model = MODEL_LIST[17] if is_dv3 else MODEL_LIST[1]
+    arch_to_model = {
+        "vits": MODEL_LIST[1] if n_reg_tokens > 0 else MODEL_LIST[0],
+        "vitb": MODEL_LIST[3],
+        "vitl": MODEL_LIST[15],
+        "vitg": MODEL_LIST[16],
+    }
     base_model = next(
-        (v for k, v in arch_to_model.items() if k in model_type), default_model
+        (v for k, v in arch_to_model.items() if k in model_type), MODEL_LIST[1]
     )
 
     model = AlibiVitWrapper(
@@ -212,3 +207,103 @@ def get_alibi_model(
     )
     model.load_state_dict(weights)
     return model
+
+
+def _inject_alibi_dv3(
+    dv3_model: nn.Module,
+    distance_matrix: DistanceMatrixWrapper,
+    slope_type: str,
+    device: str,
+) -> None:
+    """Patch DINOv3 attention compute_attention in-place to add ALiBi distance bias.
+
+    Mirrors dinosaw's inject_alibi_into_dv3 without requiring that package.
+    Constant/fixed slopes are non-persistent (not in checkpoints).
+    Learned slopes are registered as Parameters so load_state_dict populates them.
+    """
+    num_heads = dv3_model.blocks[0].attn.num_heads
+    m_init = get_alibi_slope(num_heads, slope_type=slope_type, device=device)
+    is_learned = isinstance(m_init, nn.Parameter)
+
+    def _compute_attn(self, qkv, attn_bias=None, rope=None):
+        B, N, _ = qkv.shape
+        C = self.qkv.in_features
+        qkv_r = qkv.reshape(B, N, 3, self.num_heads, C // self.num_heads)
+        q, k, v = qkv_r.unbind(2)
+        q, k, v = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
+        bias = (
+            self.m.to(device=q.device, dtype=q.dtype)
+            * distance_matrix.matrix.to(device=q.device, dtype=q.dtype)
+        ).unsqueeze(0)
+        x = F.scaled_dot_product_attention(q, k, v, attn_mask=bias)
+        return x.transpose(1, 2).reshape(B, N, C)
+
+    for block in dv3_model.blocks:
+        if is_learned:
+            block.attn.register_parameter("m", nn.Parameter(m_init.data.clone()))
+        else:
+            block.attn.register_buffer("m", m_init.clone(), persistent=False)
+        block.attn.compute_attention = MethodType(_compute_attn, block.attn)
+
+
+def get_dv3_model(
+    model_type: str,
+    model_path: str,
+    lib_path: str,
+    device: str,
+    stride: int = 16,
+) -> nn.Module:
+    """Load a DINOv3 NoPE checkpoint saved from the dinosaw AlibiVitWrapper.
+
+    Checkpoints from that wrapper have 'model.*' keys because the DINOv3 hub model
+    is stored as self.model. We recreate the same structure, inject ALiBi, then load.
+    """
+    weights = torch.load(model_path, weights_only=True, map_location=device)
+    slope_type = "learned" if "_l" in model_type else "constant"
+    n_reg_tokens = 0 if "nr" in model_type else 4
+    add_cls = "nr" not in model_type
+
+    hub_fn = "dinov3_vitl16" if "vitl" in model_type else "dinov3_vits16"
+    dv3 = torch.hub.load(lib_path, hub_fn, source="local", pretrained=False)
+
+    if stride != dv3.patch_embed.proj.stride[0]:
+        dv3.patch_embed.proj.stride = _pair(stride)
+
+    distance_matrix = DistanceMatrixWrapper(
+        n_tokens_h=16, n_tokens_w=16,
+        n_reg_tokens=n_reg_tokens,
+        normalize=True, wrap=True, add_cls=add_cls,
+    )
+    _inject_alibi_dv3(dv3, distance_matrix, slope_type, device)
+
+    class _DV3Wrapper(nn.Module):
+        def __init__(self, model, dist_mat, stride_val, n_reg):
+            super().__init__()
+            self.model = model
+            self.distance_matrix = dist_mat
+            self.stride = stride_val
+            self.patch_size = 16
+            self.n_reg_tokens = n_reg
+            self.n_cls_tokens = 1
+
+        def forward_features(self, x, make_2D=False, **kwargs):
+            b, _, h, w = x.shape
+            p, s = self.patch_size, self.stride
+            n_h = (h - p) // s + 1
+            n_w = (w - p) // s + 1
+            self.distance_matrix.update(n_h, n_w)
+            feats = self.model.forward_features(x)["x_norm_patchtokens"]
+            feats = feats.permute(0, 2, 1)  # (B, C, N)
+            if make_2D:
+                feats = feats.reshape(b, -1, n_h, n_w)
+            return feats
+
+        def forward_feats_attn(self, x, masks=None, attn_choice="none"):
+            feats = self.forward_features(x)  # (B, C, N)
+            feats = feats.permute(0, 2, 1)   # (B, N, C)
+            return {"x_norm_patchtokens": feats, "masks": masks}
+
+    wrapper = _DV3Wrapper(dv3, distance_matrix, stride, n_reg=n_reg_tokens)
+    wrapper.load_state_dict(weights)
+    wrapper.to(device)
+    return wrapper

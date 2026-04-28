@@ -12,7 +12,7 @@ from timm import create_model
 from functools import partial
 from typing import List, Tuple, TypeAlias, Literal, Callable
 
-from .utils import get_alibi_model
+from .utils import get_alibi_model, get_dv3_model
 
 
 Interpolation: TypeAlias = Literal[
@@ -361,19 +361,17 @@ class XFuse(HighResDV2):
         self.dinov2: nn.Module
         device = kwargs.get("device", None)
 
-        if "alibi" in dino_name:
-            dino_name = dino_name
+        if "alibi" in dino_name or "nope" in dino_name:
             model_path = kwargs["model_path"]
-            self.dinov2 = get_alibi_model(
-                dino_name, model_path, device=device, stride=stride
-            )
-
-        elif "nope" in dino_name:
-            dino_name = dino_name
-            model_path = kwargs["model_path"]
-            self.dinov2 = get_alibi_model(
-                dino_name, model_path, device=device, stride=stride
-            )
+            if "dv3" in dino_name:
+                lib_path = kwargs["lib_path"]
+                self.dinov2 = get_dv3_model(
+                    dino_name, model_path, lib_path, device=device, stride=stride
+                )
+            else:
+                self.dinov2 = get_alibi_model(
+                    dino_name, model_path, device=device, stride=stride
+                )
 
         elif "dinov2" in dino_name:
             hub_path = "facebookresearch/dinov2"
