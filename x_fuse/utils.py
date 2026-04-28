@@ -304,6 +304,14 @@ def get_dv3_model(
             return {"x_norm_patchtokens": feats, "masks": masks}
 
     wrapper = _DV3Wrapper(dv3, distance_matrix, stride, n_reg=n_reg_tokens)
-    wrapper.load_state_dict(weights)
+    result = wrapper.load_state_dict(weights, strict=False)
+    unexpected = result.unexpected_keys
+    missing = [k for k in result.missing_keys if "rope" not in k]
+    if unexpected or missing:
+        raise RuntimeError(
+            f"Checkpoint mismatch in _DV3Wrapper.\n"
+            f"  Unexpected keys: {unexpected}\n"
+            f"  Missing keys (non-rope): {missing}"
+        )
     wrapper.to(device)
     return wrapper
