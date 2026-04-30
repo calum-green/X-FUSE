@@ -9,7 +9,14 @@ import torch.nn as nn
 import torch.nn.functional as F
 from types import MethodType
 from torch.nn.modules.utils import _pair
-from .alibi import PretrainedViTWrapper, MODEL_LIST, AlibiVitWrapper, DistanceMatrixWrapper, get_alibi_slope
+from .alibi import (
+    PretrainedViTWrapper,
+    MODEL_LIST,
+    AlibiVitWrapper,
+    DistanceMatrixWrapper,
+    get_alibi_slope,
+)
+import h5py as h5
 
 
 def get_multiphase(
@@ -151,6 +158,34 @@ def downsample_xrdct(gray_imgs, phase_A_masks, phase_B_masks, factor=2, vis=Fals
     return gray_imgs, downsampled_phase_A_masks, downsampled_phase_B_masks
 
 
+def get_ps_images(IMG_SIZE=224):
+    ps_dict = {
+        "blobs": ps.generators.blobs,
+        "rand_spheres": ps.generators.random_spheres,
+    }
+
+    im1 = ps_dict["blobs"]
+    im2 = ps_dict["rand_spheres"]
+
+    im1_kwargs = {"shape": [IMG_SIZE, IMG_SIZE], "blobiness": 0.5, "porosity": 0.1}
+    im2_kwargs = {"r": 40, "clearance": 10}
+
+    gray, phase_A_masks, phase_B_masks = get_multiphase(
+        im1,
+        im1_kwargs,
+        im2,
+        im2_kwargs,
+        extract_spheres=True,
+        vis=False,
+        dataset_size=10,
+    )
+    gray_imgs, low_A, low_B = downsample_xrdct(
+        gray, phase_A_masks, phase_B_masks, factor=10, vis=False
+    )
+
+    return gray_imgs, low_A, low_B
+
+
 def load_xrd_h5(xrd_path):
     """
     Load the XRD data from the path, normalise, convert to tensor
@@ -253,28 +288,44 @@ def get_dv3_model(
     device: str,
     stride: int = 16,
 ) -> nn.Module:
-    """Load a DINOv3 NoPE checkpoint saved from the dinosaw AlibiVitWrapper.
+    """Load a DINOv3 checkpoint (NoPE or ALiBi) saved from the dinosaw AlibiVitWrapper.
 
     Checkpoints from that wrapper have 'model.*' keys because the DINOv3 hub model
-    is stored as self.model. We recreate the same structure, inject ALiBi, then load.
+    is stored as self.model. We recreate the same structure, optionally inject ALiBi,
+    then load. If 'nope' is in model_type, ALiBi injection is skipped entirely.
     """
     weights = torch.load(model_path, weights_only=True, map_location=device)
-    slope_type = "learned" if "_l" in model_type else "constant"
     n_reg_tokens = 0 if "nr" in model_type else 4
     add_cls = "nr" not in model_type
+    use_alibi = "alibi" in model_type
 
-    hub_fn = "dinov3_vitl16" if "vitl" in model_type else "dinov3_vits16"
+    model_dict: dict[str, str] = {
+        "vits16": "dinov3_vits16",
+        "vits16plus": "dinov3_vits16plus",
+        "vitl16": "dinov3_vitl16",
+        "vith16": "dinov3_vith16",
+        "vith16plus": "dinov3_vith16plus",
+        "vit7b16": "dinov3_vit7b16",
+    }
+
+    hub_fn = model_dict[model_type.split("_")[1]]  # format dinov3_{arch}[_extra]
     dv3 = torch.hub.load(lib_path, hub_fn, source="local", pretrained=False)
 
     if stride != dv3.patch_embed.proj.stride[0]:
         dv3.patch_embed.proj.stride = _pair(stride)
 
-    distance_matrix = DistanceMatrixWrapper(
-        n_tokens_h=16, n_tokens_w=16,
-        n_reg_tokens=n_reg_tokens,
-        normalize=True, wrap=True, add_cls=add_cls,
-    )
-    _inject_alibi_dv3(dv3, distance_matrix, slope_type, device)
+    distance_matrix = None
+    if use_alibi:
+        slope_type = "learned" if "_l" in model_type else "constant"
+        distance_matrix = DistanceMatrixWrapper(
+            n_tokens_h=16,
+            n_tokens_w=16,
+            n_reg_tokens=n_reg_tokens,
+            normalize=True,
+            wrap=True,
+            add_cls=add_cls,
+        )
+        _inject_alibi_dv3(dv3, distance_matrix, slope_type, device)
 
     class _DV3Wrapper(nn.Module):
         def __init__(self, model, dist_mat, stride_val, n_reg):
@@ -291,7 +342,8 @@ def get_dv3_model(
             p, s = self.patch_size, self.stride
             n_h = (h - p) // s + 1
             n_w = (w - p) // s + 1
-            self.distance_matrix.update(n_h, n_w)
+            if self.distance_matrix is not None:
+                self.distance_matrix.update(n_h, n_w)
             feats = self.model.forward_features(x)["x_norm_patchtokens"]
             feats = feats.permute(0, 2, 1)  # (B, C, N)
             if make_2D:
@@ -300,7 +352,7 @@ def get_dv3_model(
 
         def forward_feats_attn(self, x, masks=None, attn_choice="none"):
             feats = self.forward_features(x)  # (B, C, N)
-            feats = feats.permute(0, 2, 1)   # (B, N, C)
+            feats = feats.permute(0, 2, 1)  # (B, N, C)
             return {"x_norm_patchtokens": feats, "masks": masks}
 
     wrapper = _DV3Wrapper(dv3, distance_matrix, stride, n_reg=n_reg_tokens)
