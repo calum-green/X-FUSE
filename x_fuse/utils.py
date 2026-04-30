@@ -308,7 +308,9 @@ def get_dv3_model(
         "vit7b16": "dinov3_vit7b16",
     }
 
-    hub_fn = model_dict[model_type.split("_")[1]]  # format dinov3_{arch}[_extra]
+    hub_fn = model_dict[
+        model_type.split("_")[2]
+    ]  # format {alibi/nope}_dinov3_{arch}[_extra]
     dv3 = torch.hub.load(lib_path, hub_fn, source="local", pretrained=False)
 
     if stride != dv3.patch_embed.proj.stride[0]:
