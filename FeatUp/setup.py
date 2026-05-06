@@ -9,7 +9,8 @@ from torch.utils.cpp_extension import BuildExtension, CUDAExtension, CppExtensio
 ext_modules = []
 cmdclass = {}
 
-if sys.platform != 'darwin':  # Not macOS
+cuda_home = os.environ.get('CUDA_HOME') or os.environ.get('CUDA_PATH')
+if sys.platform != 'darwin' and cuda_home:  # Not macOS and CUDA available
     ext_modules = [
         CUDAExtension(
             'adaptive_conv_cuda_impl',
