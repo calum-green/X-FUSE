@@ -60,4 +60,5 @@ members = [
 ]
 
 [tool.pytest.ini_options]
+testpaths = ["tests"]
 markers = ["gpu: marks tests requiring a CUDA-enabled GPU (deselect with '-m not gpu')"]
