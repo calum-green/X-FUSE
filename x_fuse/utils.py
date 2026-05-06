@@ -23,8 +23,10 @@ def get_multiphase(
     imA, imA_kwargs, imB, imB_kwargs, extract_spheres=False, vis=False, dataset_size=1
 ):
     """
-    Input: imA, imB :-> images for phase A and phase B (e.g. blobs with different porosities)
-    Output: (imgA, phaseA, phaseB):-> list(imgA.astype(float32)), list(phaseA.astype(float32)), list(phaseB.astype(float32))
+    Input: imA, imB :-> images for phase A and phase B (e.g. blobs with different
+    porosities)
+    Output: (imgA, phaseA, phaseB):-> list(imgA.astype(float32)),
+        list(phaseA.astype(float32)), list(phaseB.astype(float32))
         Combined Phase Image and Phase A and Phase B masks
     """
     SEED = 1337
@@ -212,14 +214,13 @@ def get_alibi_model(
     stride: int = 14,
 ) -> PretrainedViTWrapper:
     """
-    Load the ALiBi model from the specified directory and return a PretrainedViTWrapper instance.
+    Load the ALiBi model from the specified directory and return a
+    PretrainedViTWrapper instance.
     """
     weights = torch.load(model_path, weights_only=True, map_location=device)
     slope_type = "learned" if "_l" in model_type else "constant"
     add_cls = False if "nr" in model_type else True
     n_reg_tokens = 0 if "nr" in model_type else 4
-    jitter_mag = 0.025 if "_j" in model_type else 0.0
-
     arch_to_model = {
         "vits": MODEL_LIST[1] if n_reg_tokens > 0 else MODEL_LIST[0],
         "vitb": MODEL_LIST[3],

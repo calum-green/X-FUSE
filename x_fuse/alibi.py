@@ -1,10 +1,12 @@
 """
-A simple wrapper around timm vision transformers that allow for adjusting the model stride
-and has a helper to get patch features out.
+A simple wrapper around timm vision transformers that allow for adjusting the
+model stride and has a helper to get patch features out.
 
-Adpated from https://github.com/Jiawei-Yang/Denoising-ViT/blob/main/dvt/models/vit_wrapper.py
+Adpated from:
+https://github.com/Jiawei-Yang/Denoising-ViT/blob/main/dvt/models/vit_wrapper.py
 
-This file was copied directly from https://github.com/tldr-group/dino-saw/blob/main/all_in_one_alibi_vit.py
+This file was copied directly from:
+https://github.com/tldr-group/dino-saw/blob/main/all_in_one_alibi_vit.py
 
 
 """
@@ -74,8 +76,9 @@ DEFAULT_MODEL = MODEL_LIST[1]
 class Patch:
     @staticmethod
     def add_flash_attn() -> Callable:
-        """Replaces normal 'forward()' method of the memory efficient attention layer (block.attn)
-        in the Dv2 model with an optional early return with attention. Used if xformers used.
+        """Replaces normal 'forward()' method of the memory efficient attention
+        layer (block.attn) in the Dv2 model with an optional early return with
+        attention. Used if xformers used.
 
         :return: the new forward method
         :rtype: Callable
@@ -150,7 +153,8 @@ class PretrainedViTWrapper(nn.Module):
             self.model.patch_embed.proj.stride = (stride, stride)
 
             def dynamic_feat_size(self, img_size: tuple[int, int]) -> tuple[int, int]:
-                """Get grid (feature) size for given image size taking account of dynamic padding.
+                """Get grid (feature) size for given image size taking account
+                of dynamic padding.
                 NOTE: must be torchscript compatible so using fixed tuple indexing
                 """
                 return (img_size[0] - self.patch_size[0]) // self.proj.stride[0] + 1, (
@@ -438,7 +442,9 @@ class AlibiAttention(Attention):
         self.set_alibi_slope(slope_type)
 
     def set_alibi_slope(self, slope_type: AlibiSlopeType):
-        m = get_alibi_slope(self.num_heads, slope_type=slope_type, device=self.qkv.weight.device)  # type: ignore
+        m = get_alibi_slope(  # type: ignore
+            self.num_heads, slope_type=slope_type, device=self.qkv.weight.device
+        )
 
         if isinstance(m, nn.Parameter):
             self.register_parameter("m", m)

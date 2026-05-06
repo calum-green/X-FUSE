@@ -13,6 +13,7 @@ authors = [
 dependencies = [
     "clip>=0.2.0",
     "featup",
+    "flake8>=7.3.0",
     "h5py>=3.16.0",
     "hr_dv2",
     "ipykernel>=7.2.0",
@@ -20,6 +21,7 @@ dependencies = [
     "open-clip-torch>=3.3.0",
     "opencv-python>=4.13.0.92",
     "porespy>=3.0.2",
+    "pytest>=9.0.3",
     "sam2>=1.1.0",
     "termcolor>=3.3.0",
     "torch<=2.6",
@@ -38,6 +40,8 @@ dev = [
     "pytest>=7.0",
     "pytest-cov>=4.0",
     "pytest-benchmark>=4.0",
+    "black>=24.0",
+    "pre-commit>=3.0",
     "ipython>=7.0",
     "jupyter>=1.0",
 ]
@@ -54,3 +58,11 @@ members = [
     "FeatUp",
     "HR-Dv2",
 ]
+
+[tool.black]
+line-length = 88
+target-version = ["py312"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = ["gpu: marks tests requiring a CUDA-enabled GPU (deselect with '-m not gpu')"]
