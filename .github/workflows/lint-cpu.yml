@@ -16,6 +16,13 @@ jobs:
         with:
           enable-cache: true
 
+      - name: Cache virtual environment
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: venv-${{ runner.os }}-
+
       - name: Install dependencies
         run: uv sync --extra cpu --extra dev
 
@@ -34,6 +41,13 @@ jobs:
       - uses: astral-sh/setup-uv@v4
         with:
           enable-cache: true
+
+      - name: Cache virtual environment
+        uses: actions/cache@v4
+        with:
+          path: .venv
+          key: venv-${{ runner.os }}-${{ hashFiles('uv.lock') }}
+          restore-keys: venv-${{ runner.os }}-
 
       - name: Install dependencies
         run: uv sync --extra cpu --extra dev
