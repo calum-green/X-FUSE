@@ -137,7 +137,7 @@ def test_dcg_gate_values_in_range(dino_flavour, features, xrd_map_4d, loss_fn):
 @pytest.mark.parametrize("loss_fn", ["pearson"])
 def test_dcg_top_k_zeroing(dino_flavour, features, xrd_map_4d, loss_fn):
     # BCE can legitimately produce all-zero gates when BCE > log(2) for all
-    # channels with random inputs, so this assertion is only reliable for pearson.
+    # channels with random inputs, so this channel-count assertion is pearson-only.
     k = 10
     fusion = XRDFusionMethod(
         xrd_img=xrd_map_4d, transform=[], require_grad=False,
@@ -151,7 +151,7 @@ def test_dcg_top_k_zeroing(dino_flavour, features, xrd_map_4d, loss_fn):
 @pytest.mark.parametrize("loss_fn", ["pearson"])
 def test_dcg_default_top_k(dino_flavour, features, xrd_map_4d, loss_fn):
     # BCE can legitimately produce all-zero gates when BCE > log(2) for all
-    # channels with random inputs, so this assertion is only reliable for pearson.
+    # channels with random inputs, so this channel-count assertion is pearson-only.
     fusion = XRDFusionMethod(
         xrd_img=xrd_map_4d, transform=[], require_grad=False,
         learned_gating=None, spatial_attention=None, loss_fn=loss_fn,
@@ -160,6 +160,20 @@ def test_dcg_default_top_k(dino_flavour, features, xrd_map_4d, loss_fn):
     expected_k = features.shape[1] // 4
     n_nonzero = (result.abs().sum(dim=(0, 2, 3)) > 0).sum().item()
     assert n_nonzero == expected_k
+
+
+def test_dcg_bce_top_k_pipeline(dino_flavour, features, xrd_map_4d):
+    # Verifies the BCE path runs without error for both explicit and default top_k.
+    fusion = XRDFusionMethod(
+        xrd_img=xrd_map_4d, transform=[], require_grad=False,
+        learned_gating=None, spatial_attention=None, loss_fn="bce",
+    )
+    result_explicit = fusion._direct_correlation_gating(features, xrd_map_4d, top_k=10)
+    result_default = fusion._direct_correlation_gating(features, xrd_map_4d)
+    assert result_explicit.shape == features.shape
+    assert result_explicit.dtype == features.dtype
+    assert result_default.shape == features.shape
+    assert result_default.dtype == features.dtype
 
 
 @pytest.mark.parametrize("loss_fn", ["pearson", "bce"])
