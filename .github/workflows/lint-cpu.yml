@@ -1,0 +1,42 @@
+name: Lint and CPU Tests
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra cpu --extra dev
+
+      - name: Check formatting
+        run: uv run black --check . --line-length 88 --exclude '/(FeatUp|HR-Dv2)/'
+
+      - name: Lint
+        run: uv run flake8 x_fuse/ tests/
+
+  test:
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v4
+        with:
+          enable-cache: true
+
+      - name: Install dependencies
+        run: uv sync --extra cpu --extra dev
+
+      - name: Run CPU tests
+        run: uv run pytest -m "not gpu" --cov=x_fuse --cov-report=xml -v
