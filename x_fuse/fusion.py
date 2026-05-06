@@ -10,7 +10,7 @@ import re
 from timm import create_model
 
 from functools import partial
-from typing import List, Tuple, TypeAlias, Literal, Callable
+from typing import List, Tuple, TypeAlias, Literal
 
 from .utils import get_alibi_model, get_dv3_model
 
