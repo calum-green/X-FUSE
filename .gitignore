@@ -6,3 +6,8 @@ cache-dir
 FeatUp/featup.egg-info/*
 FeatUp/adaptive_conv_cpp_impl.cpython-311-x86_64-linux-gnu.so
 FeatUp/adaptive_conv_cuda_impl.cpython-311-x86_64-linux-gnu.so
+
+.claude
+.vscode
+
+docs
