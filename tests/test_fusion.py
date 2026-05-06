@@ -2,8 +2,8 @@ import pytest
 import torch
 from x_fuse.fusion import XRDCrossAttention, LearnedChannelGating, XRDFusionMethod
 
-
 # ── XRDCrossAttention ──────────────────────────────────────────────────────────
+
 
 def test_cross_attn_output_shape(dino_flavour, features, xrd_map_4d):
     model = XRDCrossAttention(
@@ -49,6 +49,7 @@ def test_cross_attn_xrd_3d_input(dino_flavour, features):
 
 # ── LearnedChannelGating ───────────────────────────────────────────────────────
 
+
 def test_gating_bce_loss_scalar(dino_flavour, features, xrd_map_4d):
     gating = LearnedChannelGating(feat_dim=dino_flavour["feat_dim"], loss_fn="bce")
     loss = gating.compute_loss(features, xrd_map_4d)
@@ -93,11 +94,16 @@ def test_gating_forward_dtype(dino_flavour, features, xrd_map_4d):
 
 # ── XRDFusionMethod._direct_correlation_gating ────────────────────────────────
 
+
 @pytest.mark.parametrize("loss_fn", ["pearson", "bce"])
 def test_dcg_output_shape(dino_flavour, features, xrd_map_4d, loss_fn):
     fusion = XRDFusionMethod(
-        xrd_img=xrd_map_4d, transform=[], require_grad=False,
-        learned_gating=None, spatial_attention=None, loss_fn=loss_fn,
+        xrd_img=xrd_map_4d,
+        transform=[],
+        require_grad=False,
+        learned_gating=None,
+        spatial_attention=None,
+        loss_fn=loss_fn,
     )
     result = fusion._direct_correlation_gating(features, xrd_map_4d)
     assert result.shape == features.shape
@@ -106,8 +112,12 @@ def test_dcg_output_shape(dino_flavour, features, xrd_map_4d, loss_fn):
 @pytest.mark.parametrize("loss_fn", ["pearson", "bce"])
 def test_dcg_output_dtype(dino_flavour, features, xrd_map_4d, loss_fn):
     fusion = XRDFusionMethod(
-        xrd_img=xrd_map_4d, transform=[], require_grad=False,
-        learned_gating=None, spatial_attention=None, loss_fn=loss_fn,
+        xrd_img=xrd_map_4d,
+        transform=[],
+        require_grad=False,
+        learned_gating=None,
+        spatial_attention=None,
+        loss_fn=loss_fn,
     )
     result = fusion._direct_correlation_gating(features, xrd_map_4d)
     assert result.dtype == features.dtype
@@ -116,8 +126,12 @@ def test_dcg_output_dtype(dino_flavour, features, xrd_map_4d, loss_fn):
 @pytest.mark.parametrize("loss_fn", ["pearson", "bce"])
 def test_dcg_output_is_tensor(dino_flavour, features, xrd_map_4d, loss_fn):
     fusion = XRDFusionMethod(
-        xrd_img=xrd_map_4d, transform=[], require_grad=False,
-        learned_gating=None, spatial_attention=None, loss_fn=loss_fn,
+        xrd_img=xrd_map_4d,
+        transform=[],
+        require_grad=False,
+        learned_gating=None,
+        spatial_attention=None,
+        loss_fn=loss_fn,
     )
     result = fusion._direct_correlation_gating(features, xrd_map_4d)
     assert isinstance(result, torch.Tensor)
@@ -127,8 +141,12 @@ def test_dcg_output_is_tensor(dino_flavour, features, xrd_map_4d, loss_fn):
 def test_dcg_gate_values_in_range(dino_flavour, features, xrd_map_4d, loss_fn):
     # Gates are in [0, 1], so |output[c]| <= |features[c]| elementwise.
     fusion = XRDFusionMethod(
-        xrd_img=xrd_map_4d, transform=[], require_grad=False,
-        learned_gating=None, spatial_attention=None, loss_fn=loss_fn,
+        xrd_img=xrd_map_4d,
+        transform=[],
+        require_grad=False,
+        learned_gating=None,
+        spatial_attention=None,
+        loss_fn=loss_fn,
     )
     result = fusion._direct_correlation_gating(features, xrd_map_4d)
     assert torch.all(result.abs() <= features.abs() + 1e-6)
@@ -140,8 +158,12 @@ def test_dcg_top_k_zeroing(dino_flavour, features, xrd_map_4d, loss_fn):
     # channels with random inputs, so this channel-count assertion is pearson-only.
     k = 10
     fusion = XRDFusionMethod(
-        xrd_img=xrd_map_4d, transform=[], require_grad=False,
-        learned_gating=None, spatial_attention=None, loss_fn=loss_fn,
+        xrd_img=xrd_map_4d,
+        transform=[],
+        require_grad=False,
+        learned_gating=None,
+        spatial_attention=None,
+        loss_fn=loss_fn,
     )
     result = fusion._direct_correlation_gating(features, xrd_map_4d, top_k=k)
     n_nonzero = (result.abs().sum(dim=(0, 2, 3)) > 0).sum().item()
@@ -153,8 +175,12 @@ def test_dcg_default_top_k(dino_flavour, features, xrd_map_4d, loss_fn):
     # BCE can legitimately produce all-zero gates when BCE > log(2) for all
     # channels with random inputs, so this channel-count assertion is pearson-only.
     fusion = XRDFusionMethod(
-        xrd_img=xrd_map_4d, transform=[], require_grad=False,
-        learned_gating=None, spatial_attention=None, loss_fn=loss_fn,
+        xrd_img=xrd_map_4d,
+        transform=[],
+        require_grad=False,
+        learned_gating=None,
+        spatial_attention=None,
+        loss_fn=loss_fn,
     )
     result = fusion._direct_correlation_gating(features, xrd_map_4d)
     expected_k = features.shape[1] // 4
@@ -165,8 +191,12 @@ def test_dcg_default_top_k(dino_flavour, features, xrd_map_4d, loss_fn):
 def test_dcg_bce_top_k_pipeline(dino_flavour, features, xrd_map_4d):
     # Verifies the BCE path runs without error for both explicit and default top_k.
     fusion = XRDFusionMethod(
-        xrd_img=xrd_map_4d, transform=[], require_grad=False,
-        learned_gating=None, spatial_attention=None, loss_fn="bce",
+        xrd_img=xrd_map_4d,
+        transform=[],
+        require_grad=False,
+        learned_gating=None,
+        spatial_attention=None,
+        loss_fn="bce",
     )
     result_explicit = fusion._direct_correlation_gating(features, xrd_map_4d, top_k=10)
     result_default = fusion._direct_correlation_gating(features, xrd_map_4d)
@@ -179,8 +209,12 @@ def test_dcg_bce_top_k_pipeline(dino_flavour, features, xrd_map_4d):
 @pytest.mark.parametrize("loss_fn", ["pearson", "bce"])
 def test_dcg_xrd_spatial_mismatch(dino_flavour, features, xrd_map_4d, loss_fn):
     fusion = XRDFusionMethod(
-        xrd_img=xrd_map_4d, transform=[], require_grad=False,
-        learned_gating=None, spatial_attention=None, loss_fn=loss_fn,
+        xrd_img=xrd_map_4d,
+        transform=[],
+        require_grad=False,
+        learned_gating=None,
+        spatial_attention=None,
+        loss_fn=loss_fn,
     )
     xrd_mismatched = torch.rand(1, 1, 4, 4)
     result = fusion._direct_correlation_gating(features, xrd_mismatched)
