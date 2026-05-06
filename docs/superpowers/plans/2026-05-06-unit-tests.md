@@ -6,7 +6,7 @@
 
 **Architecture:** Three files under `tests/`: a `conftest.py` defining 9 parametrized DINO flavour fixtures and shared synthetic tensors, `test_fusion.py` covering the three fusion module targets, and `test_utils.py` covering the utility functions. No model weights are loaded — all fusion tests use `torch.randn`/`torch.rand` synthetic tensors sized `(1, feat_dim, 8, 8)` for speed on CPU.
 
-**Tech Stack:** pytest, torch, numpy, porespy, opencv-python (all in project dev dependencies via `pyproject.toml`)
+**Tech Stack:** pytest, torch, numpy, porespy, opencv-python (all in project dev dependencies via `pyproject.toml`); black and flake8 for formatting/linting at max line length 88
 
 ---
 

@@ -10,6 +10,8 @@
 
 Add a pytest-based unit test suite for the X-FUSE codebase. Tests use synthetic random tensors rather than real model weights, making them fast, self-contained, and runnable on CPU without checkpoints. The suite is parametrized over 9 DINO model flavour profiles.
 
+Code style is enforced with **black** (formatter) and **flake8** (linter), both configured to a maximum line length of **88 characters**.
+
 ---
 
 ## Directory Structure
@@ -162,4 +164,13 @@ pytest tests/test_fusion.py -v
 
 # Single flavour
 pytest tests/test_fusion.py -v -k "dinov3_7b"
+```
+
+## Formatting
+
+All test files must pass black and flake8 with a max line length of 88:
+
+```bash
+black --line-length 88 tests/
+flake8 --max-line-length 88 tests/
 ```
