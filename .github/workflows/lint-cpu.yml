@@ -20,7 +20,7 @@ jobs:
         run: uv sync --extra cpu --extra dev
 
       - name: Check formatting
-        run: uv run black --check x_fuse/ tests/ --line-length 88
+        run: uv run black --check x_fuse/ tests/
 
       - name: Lint
         run: uv run flake8 x_fuse/ tests/

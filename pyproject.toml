@@ -59,6 +59,10 @@ members = [
     "HR-Dv2",
 ]
 
+[tool.black]
+line-length = 88
+target-version = ["py312"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["gpu: marks tests requiring a CUDA-enabled GPU (deselect with '-m not gpu')"]
