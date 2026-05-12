@@ -71,7 +71,10 @@ dataset:
   # diad-specific:
   xct_path: "/path/to/xct.h5"
   phase_folder: "/path/to/phases/"
-  phases: ["Na", "Zn"]
+  phases: ["Na", "Zn"]      # drives output file naming and filename filtering; no hardcoded values
+  entry_names:               # optional: maps each phase string → HDF5 entry path inside .nxs files
+    Na: "entry/peak at q~1.651"   # if omitted, the loader's own default is used (with a warning)
+    Zn: "entry/peak at q~1.656"   # for a new dataset supply the correct entry paths here
   sample_idx: -1             # index of sample/slice to process (applies to both dataset types)
   # porespy-specific (ignored when type != "porespy"):
   # n_samples: 10
@@ -155,6 +158,7 @@ Validates, loads, and formats input data. Runs on CPU; no GPU required. Intended
 - All required file paths exist (`xct_path`, `phase_folder`, `model_path`, `lib_path` if set, `sam2_folder`)
 - `dataset.type` is one of the registered types (`"diad"`, `"porespy"`)
 - `dataset.phases` is non-empty
+- For `type: "diad"`: warn (do not fail) if `entry_names` is absent or missing keys for any phase, since the loader has a fallback default
 - `dataset.sample_idx` is within bounds after loading
 
 **Loading and formatting:**
@@ -213,6 +217,10 @@ Reads prepared arrays from Stage 0. No data loading or validation here.
 ### Inter-stage contract
 
 Stages communicate only through files in `outputs/<name>/`. Each stage can be re-run independently. If expected input files are missing, the stage raises a clear `FileNotFoundError` with a message indicating which prior stage must be run first. `xct.npy` is written by Stage 0 and read by Stages 1, 2, and 3 — it is the single source of truth for the image used throughout a run.
+
+### Phase naming
+
+All per-phase output files are named using the phase strings from `config.dataset.phases` directly — no phase names are hardcoded in `pipeline.py`. A run with `phases: ["Na", "Zn"]` produces `Na_xrd.npy` and `Zn_xrd.npy`; a run with `phases: ["alpha", "beta"]` produces `alpha_xrd.npy` and `beta_xrd.npy`. The pipeline always passes `config.dataset.phases` explicitly to the loader rather than relying on the loader's default phase list. `entry_names` (if present in the config) is also forwarded to the loader; if absent, the loader falls back to its own default and Stage 0 emits a warning.
 
 ---
 
@@ -291,34 +299,26 @@ run_refine(config)
 
 ```
 outputs/
-└── zn13x_run1/
-    ├── data/                         # Stage 0 outputs
-    │   ├── xct.npy                   # transformed XCT image (float32)
-    │   ├── Na_xrd.npy                # normalised XRD map (float32)
-    │   ├── Zn_xrd.npy
-    │   ├── data_summary.txt          # shapes, value ranges, loader used
-    │   └── data_overview.png         # if vis.data
-    ├── features/                     # Stage 1 outputs
-    │   ├── Na_feats.npy
-    │   ├── Na_pca.npy
-    │   ├── Zn_feats.npy
-    │   ├── Zn_pca.npy
-    │   ├── dino_pca.png              # if vis.dino_features
-    │   ├── Na_fused.png              # if vis.fused_maps
-    │   ├── Na_pca_grid.png           # if vis.pca_components
-    │   └── ...
-    ├── segment/                      # Stage 2 outputs
-    │   ├── Na_mask.npy
-    │   ├── Zn_mask.npy
+└── <run.name>/
+    ├── data/                              # Stage 0 outputs
+    │   ├── xct.npy                        # transformed XCT image (float32)
+    │   ├── <phase>_xrd.npy                # one file per entry in dataset.phases
+    │   ├── data_summary.txt               # shapes, value ranges, loader used
+    │   └── data_overview.png              # if vis.data
+    ├── features/                          # Stage 1 outputs
+    │   ├── <phase>_feats.npy              # one file per phase
+    │   ├── <phase>_pca.npy
+    │   ├── dino_pca.png                   # if vis.dino_features
+    │   ├── <phase>_fused.png              # if vis.fused_maps
+    │   └── <phase>_pca_grid.png           # if vis.pca_components
+    ├── segment/                           # Stage 2 outputs
+    │   ├── <phase>_mask.npy
     │   ├── threshold.txt
-    │   ├── Na_mask.png               # if vis.masks
-    │   └── ...
-    └── refine/                       # Stage 3 outputs
-        ├── Na_refined_mask.npy
-        ├── Zn_refined_mask.npy
-        ├── config.yaml               # copy of config for reproducibility
-        ├── Na_sam2_overlay.png       # if vis.sam2
-        └── ...
+    │   └── <phase>_mask.png               # if vis.masks
+    └── refine/                            # Stage 3 outputs
+        ├── <phase>_refined_mask.npy
+        ├── config.yaml                    # copy of config for reproducibility
+        └── <phase>_sam2_overlay.png       # if vis.sam2
 ```
 
 ---
