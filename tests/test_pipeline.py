@@ -47,3 +47,72 @@ def test_overlay_mask_clipped():
     result = overlay_mask(xct, mask)
     assert result.max() <= 1.0
     assert result.min() >= 0.0
+
+
+# ---------------------------------------------------------------------------
+# Config tests
+# ---------------------------------------------------------------------------
+
+from x_fuse.config import XFuseConfig  # noqa: E402
+
+
+def minimal_config(name="test_run") -> XFuseConfig:
+    return XFuseConfig(name=name)
+
+
+def test_config_defaults():
+    cfg = minimal_config()
+    assert cfg.dataset_type == "diad"
+    assert cfg.fusion_method == "gating"
+    assert cfg.img_size == 224
+    assert cfg.stride == 4
+    assert cfg.vis_data is True
+    assert cfg.vis_dino_features is False
+    assert cfg.device is None
+    assert cfg.phases == ["Na", "Zn"]
+
+
+def test_config_roundtrip(tmp_path):
+    cfg = XFuseConfig(
+        name="roundtrip",
+        dataset_type="porespy",
+        phases=["alpha", "beta"],
+        img_size=128,
+        invert=True,
+    )
+    yaml_path = str(tmp_path / "cfg.yaml")
+    cfg.to_yaml(yaml_path)
+    loaded = XFuseConfig.from_yaml(yaml_path)
+    assert loaded.name == "roundtrip"
+    assert loaded.dataset_type == "porespy"
+    assert loaded.phases == ["alpha", "beta"]
+    assert loaded.img_size == 128
+    assert loaded.invert is True
+
+
+def test_config_replace_does_not_mutate():
+    cfg = minimal_config("original")
+    cfg2 = cfg.replace(name="copy", fusion_method="attention")
+    assert cfg.name == "original"
+    assert cfg.fusion_method == "gating"
+    assert cfg2.name == "copy"
+    assert cfg2.fusion_method == "attention"
+
+
+def test_config_output_path():
+    cfg = XFuseConfig(name="myrun", output_dir="results/")
+    assert str(cfg.output_path) == "results/myrun"
+
+
+def test_config_resolve_device_override():
+    cfg = XFuseConfig(name="x", device="cpu")
+    assert cfg.resolve_device() == "cpu"
+
+
+def test_config_resolve_device_auto():
+    import torch
+
+    cfg = XFuseConfig(name="x")
+    device = cfg.resolve_device()
+    expected = "cuda" if torch.cuda.is_available() else "cpu"
+    assert device == expected
