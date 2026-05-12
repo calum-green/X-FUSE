@@ -28,7 +28,9 @@ def load_xrdct_phase(
 
     xrdct_data = []
     for i in range(len(phases)):
-        files = [f for f in os.listdir(phase_folder) if phases[i] in f][crop]
+        files = [f for f in os.listdir(phase_folder) if phases[i].lower() in f.lower()][
+            crop
+        ]
 
         assert (
             len(files) > 0
