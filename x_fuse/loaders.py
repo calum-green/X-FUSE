@@ -44,9 +44,9 @@ def load_xrdct_phase(
 
         xrdct_i = np.zeros(shape)
         for idx in range(shape[0]):
-            with h5py.File(os.path.join(phase_folder, files[idx]), "r") as f:
+            with h5py.File(os.path.join(phase_folder, files[idx]), "r") as file:
                 xrdct_i[idx] += np.array(
-                    f[entry_names.get(phases[i], "data")][:]
+                    file[f"{entry_names.get(phases[i])}"][:]
                 ).squeeze()
         xrdct_data.append(xrdct_i)
 
@@ -58,7 +58,7 @@ def load_diad_xct_zn13x(xct_path: str, **kwargs) -> np.ndarray:
 
 
 def load_diad_xrdct(
-    phase_folder: str, phases: list[str] = ["Zn", "Na"], **kwargs
+    phase_folder: str, phases: list[str] = ["Na", "Zn"], **kwargs
 ) -> dict[str, np.ndarray]:
     phase_arrays = load_xrdct_phase(
         phase_folder,
