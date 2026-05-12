@@ -48,20 +48,21 @@ def _mock_listdir(phase: str, n_files: int):
 @patch("x_fuse.loaders.os.listdir")
 @patch("x_fuse.loaders.h5py.File")
 def test_load_xrdct_phase_returns_one_array_per_phase(mock_h5, mock_ls):
-    phases = ["ZnO", "Zn13X"]
+    phases = ["Zn", "Na"]
     shape = (3, 4, 4)
+    entry_names = {"Zn": "entry/peak at q~1.656", "Na": "entry/peak at q~1.651"}
 
-    mock_ls.return_value = _mock_listdir("ZnO", 3) + _mock_listdir("Zn13X", 3)
+    mock_ls.return_value = _mock_listdir("Zn", 3) + _mock_listdir("Na", 3)
 
-    mock_ds = MagicMock()
-    mock_ds.__getitem__ = MagicMock(return_value=np.zeros((1, 4, 4)))
     mock_file = MagicMock()
     mock_file.__enter__ = MagicMock(return_value=mock_file)
     mock_file.__exit__ = MagicMock(return_value=False)
-    mock_file.__getitem__ = MagicMock(return_value=mock_ds)
+    mock_file.__getitem__ = MagicMock(return_value=np.zeros((1, 4, 4)))
     mock_h5.return_value = mock_file
 
-    result = load_xrdct_phase("fake_folder", phases=phases, shape=shape)
+    result = load_xrdct_phase(
+        "fake_folder", phases=phases, shape=shape, entry_names=entry_names
+    )
     assert len(result) == len(
         phases
     ), f"Expected {len(phases)} arrays, got {len(result)}"
