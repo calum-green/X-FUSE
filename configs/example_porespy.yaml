@@ -1,0 +1,47 @@
+run:
+  name: "porespy_blobs_run1"
+  output_dir: "outputs/"
+
+environment:
+  torch_cache: "/dls/science/groups/imaging/infuse/XRDCT_Fusion/torch_cache/"
+
+dataset:
+  type: "porespy"
+  # porespy generates synthetic data — no file paths needed
+  phases: ["blobs", "spheres"]
+  sample_idx: -1
+  n_samples: 10
+  downsample_factor: 10
+
+model:
+  dino_model: "nope_dv3_vits16plus_1625"
+  model_path: "/dls/science/groups/imaging/infuse/XRDCT_Fusion/dinosaw-env/models/dinov3_SMALL_REG_1625_plus_alibi/best_model.pth"
+  chk_path: null
+  lib_path: "/dls/science/groups/imaging/infuse/DINOv3/dinov3/"
+  img_size: 224
+  stride: 4
+  fusion_method: "gating"
+  loss_fn: "bce"
+  top_k: null
+  invert: false
+  device: null
+
+augmentation:
+  shift_distances: [1, 2]
+  use_flip: true
+
+pca:
+  n_components: 10
+  n_samples: 5000
+
+sam2:
+  folder: "//dls/science/groups/imaging/infuse/SAM2/"
+  model: "sam2.1_hiera_small"
+
+vis:
+  data: true
+  dino_features: false
+  fused_maps: true
+  pca_components: true
+  masks: true
+  sam2: true

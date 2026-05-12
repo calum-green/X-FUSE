@@ -1,0 +1,51 @@
+run:
+  name: "zn13x_run1"
+  output_dir: "outputs/"
+
+environment:
+  torch_cache: "/dls/science/groups/imaging/infuse/XRDCT_Fusion/torch_cache/"
+
+dataset:
+  type: "diad"
+  xct_path: "/dls/science/groups/imaging/infuse/XRDCT_Fusion/data/Zn13X/xct.h5"
+  phase_folder: "/dls/science/groups/imaging/infuse/XRDCT_Fusion/data/Zn13X/phases/"
+  phases: ["Na", "Zn"]
+  entry_names:
+    Na: "entry/peak at q~1.651"
+    Zn: "entry/peak at q~1.656"
+  sample_idx: -1
+
+model:
+  # Supported: "nope_dv3_<arch>", "alibi_dv3_<arch>", "dinov3_<arch>"
+  # Only ViT-S architecture is currently tested.
+  dino_model: "nope_dv3_vits16plus_1625"
+  model_path: "/dls/science/groups/imaging/infuse/XRDCT_Fusion/dinosaw-env/models/dinov3_SMALL_REG_1625_plus_alibi/best_model.pth"
+  chk_path: null
+  lib_path: "/dls/science/groups/imaging/infuse/DINOv3/dinov3/"
+  img_size: 224
+  stride: 4
+  fusion_method: "gating"
+  loss_fn: "bce"
+  top_k: null
+  invert: false
+  device: null
+
+augmentation:
+  shift_distances: [1, 2]
+  use_flip: true
+
+pca:
+  n_components: 10
+  n_samples: 5000
+
+sam2:
+  folder: "//dls/science/groups/imaging/infuse/SAM2/"
+  model: "sam2.1_hiera_small"
+
+vis:
+  data: true
+  dino_features: false
+  fused_maps: true
+  pca_components: true
+  masks: true
+  sam2: true
