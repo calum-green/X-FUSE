@@ -328,16 +328,18 @@ outputs/
 The user guide covers:
 
 1. **Installation** — prerequisites, environment setup, cache directory configuration
-2. **Quick start** — end-to-end example from config creation to refined masks
-3. **Config reference** — every YAML field documented with type, default, and description
-4. **Creating configs in Python** — `XFuseConfig` constructor, `to_yaml()`, `replace()` with worked examples
-5. **Running the CLI** — each stage with example commands and expected outputs
-6. **Using the notebook driver** — annotated version of `run_pipeline.ipynb`
-7. **Dataset types** — `diad` vs `porespy` config differences and which loader functions are called
-8. **Data stage in detail** — what is validated, what the `data_summary.txt` contains, how to interpret `data_overview.png`, and common errors with remedies
-9. **Visualisation flags** — what each `vis.*` flag controls and when to enable them for HPC vs interactive use
-10. **Output files** — description of every file saved by each stage
-11. **Extending the pipeline** — how to add a new dataset type (register a loader), a new stage, or new visualisations
+2. **Quick start** — end-to-end example from config creation to refined masks (diad and porespy)
+3. **Config reference** — every YAML field documented with type, default, and description; fields marked required vs optional
+4. **Creating configs in Python** — `XFuseConfig` constructor, `to_yaml()`, `replace()` with worked examples including generating experiment variants in a loop
+5. **Running the CLI** — each stage with example commands and expected terminal output; note that Stage 0 (`--stage data`) is CPU-only and fast, while Stage 1 (`--stage features`) requires a GPU
+6. **Using the notebook driver** — annotated version of `run_pipeline.ipynb`; explains how to create a config inline vs load from file
+7. **Dataset types** — `diad` vs `porespy` config differences and which loader functions are called; explains that `porespy` ignores `xct_path`, `phase_folder`, and `entry_names`
+8. **Phase naming** — explains that `dataset.phases` drives all output file names (e.g. `<phase>_xrd.npy`, `<phase>_mask.npy`); no phase names are hardcoded; a single-phase run just sets `phases: ["Zn"]`; future multi-phase datasets work by extending the list
+9. **entry_names in detail** — explains the two roles of the phase string (filename filter + HDF5 entry key lookup); shows how to find the correct entry path for a new `.nxs` dataset; documents the warning emitted when `entry_names` is absent and how to suppress it by adding the field; notes that omitting it falls back to the loader default which may not be correct for new datasets
+10. **Data stage in detail** — what is validated, what errors to expect and how to fix them (missing files, shape mismatches, out-of-range `sample_idx`), what `data_summary.txt` contains, and how to interpret `data_overview.png`
+11. **Visualisation flags** — what each `vis.*` flag controls and when to enable them; `vis.data: true` is the default and recommended for first runs; all figures are always saved to disk regardless of flags — flags only suppress inline display for headless HPC runs
+12. **Output files** — description of every file saved by each stage, including the `config.yaml` copy in `refine/` and `threshold.txt` in `segment/`
+13. **Extending the pipeline** — how to add a new dataset type (add a loader function, register it in the loader registry in `pipeline.py`), how to add a new stage, and how to add new visualisations
 
 ---
 
