@@ -18,35 +18,27 @@ def load_xct(xct_path: str, recon: str = "Tomopy", **kwargs) -> np.ndarray:
 
 
 def load_xrdct_phase(
-    phase_folder: str, phases: list, shape: list, crop=slice(None), **kwargs
-) -> np.array:
-    # load the xrdct phase data from the given folder
-    # return the data as a numpy array
-
+    phase_folder: str, phases: list, shape: list, crop: slice = slice(None), **kwargs
+) -> list[np.ndarray]:
     xrdct_data = []
     for i in range(len(phases)):
-        # iterate for each phase
         files = [f for f in os.listdir(phase_folder) if phases[i] in f][crop]
 
-        # assertions to check if the files are correct
         assert (
             len(files) > 0
         ), f"No files found for phase {phases[i]} in folder {phase_folder}."
-        assert [
-            f for f in files if f.endswith(".nxs")
-        ], f"Expected .nxs files for phase {phases[i]}, but found none."
+        assert any(
+            f.endswith(".nxs") for f in files
+        ), f"Expected .nxs files for phase {phases[i]}, but found none."
         assert (
             len(files) == shape[0]
         ), f"Expected {shape[0]} files for phase {phases[i]}, but found {len(files)}."
 
         xrdct_i = np.zeros(shape)
-
         for idx in range(shape[0]):
             with h5py.File(os.path.join(phase_folder, files[idx]), "r") as f:
-                xrdct_i[idx] += np.transpose(
-                    np.array(f["data"][:]), (0, 1, 2)
-                ).squeeze()
-            xrdct_data.append(xrdct_i)
+                xrdct_i[idx] += np.array(f["data"][:]).squeeze()
+        xrdct_data.append(xrdct_i)
 
     return xrdct_data
 

@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from x_fuse.loaders import load_xct
+from x_fuse.loaders import load_xct, load_xrdct_phase
 
 
 def _make_mock_h5(data: np.ndarray):
@@ -36,3 +36,32 @@ def test_load_xct_astra(mock_h5):
 def test_load_xct_rejects_non_h5():
     with pytest.raises(AssertionError):
         load_xct("fake.nxs")
+
+
+# ── load_xrdct_phase ──────────────────────────────────────────────────────────
+
+
+def _mock_listdir(phase: str, n_files: int):
+    return [f"{phase}_file_{i:02d}.nxs" for i in range(n_files)]
+
+
+@patch("x_fuse.loaders.os.listdir")
+@patch("x_fuse.loaders.h5py.File")
+def test_load_xrdct_phase_returns_one_array_per_phase(mock_h5, mock_ls):
+    phases = ["ZnO", "Zn13X"]
+    shape = (3, 4, 4)
+
+    mock_ls.return_value = _mock_listdir("ZnO", 3) + _mock_listdir("Zn13X", 3)
+
+    mock_ds = MagicMock()
+    mock_ds.__getitem__ = MagicMock(return_value=np.zeros((1, 4, 4)))
+    mock_file = MagicMock()
+    mock_file.__enter__ = MagicMock(return_value=mock_file)
+    mock_file.__exit__ = MagicMock(return_value=False)
+    mock_file.__getitem__ = MagicMock(return_value=mock_ds)
+    mock_h5.return_value = mock_file
+
+    result = load_xrdct_phase("fake_folder", phases=phases, shape=shape)
+    assert len(result) == len(
+        phases
+    ), f"Expected {len(phases)} arrays, got {len(result)}"
