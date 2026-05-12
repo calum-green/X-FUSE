@@ -42,9 +42,24 @@ Convert the notebook-based X-FUSE workflow (`notebooks/ps_dv3.ipynb`, `notebooks
 | `configs/example_porespy.yaml` | Example config for synthetic PoreSpy data |
 | `docs/pipeline.md` | User guide covering config creation, CLI usage, and notebook usage |
 
+### Modified files
+
+`x_fuse/utils.py` — receives the following functions extracted from `notebooks/ps_dv3.ipynb`, where they were defined inline:
+
+| Function | Source cell | Used by |
+|---|---|---|
+| `invert_image(image)` | Cell 7 | Stage 0 (`run_data`) |
+| `load_img(img, transform)` | Cell 8 | Stage 1 (`run_features`) |
+| `overlay_mask(xct, mask, color, alpha)` | Cell 17 | Stage 3 (`run_refine`) figures |
+| `xct_contrast(threshold, pca_component, xct_img)` | Cell 24 | Optional threshold utility |
+| `get_SAM2_score(pca_comp, img_size, predictor, threshold, get_mask)` | Cell 19 | Stage 3 / threshold utilities |
+| `auto_threshold(pca_comp, img_size, predictor, n_iter, lr)` | Cell 19 | Stage 3 / future automation |
+
+`pipeline.py` imports these from `x_fuse.utils` rather than redefining them inline.
+
 ### Unchanged files
 
-`x_fuse/loaders.py`, `x_fuse/fusion.py`, `x_fuse/utils.py`, `x_fuse/alibi.py` — pipeline functions call these directly; no modifications needed.
+`x_fuse/loaders.py`, `x_fuse/fusion.py`, `x_fuse/alibi.py` — pipeline functions call these directly; no modifications needed.
 
 ### Thin notebook driver
 
@@ -81,9 +96,22 @@ dataset:
   # downsample_factor: 10
 
 model:
+  # Supported model string formats (only ViT-S architecture is currently tested;
+  # larger architectures should work but are not verified):
+  #
+  #   NoPE variant:   "nope_dv3_<arch>[_<id>]"   e.g. "nope_dv3_vits16plus_1625"
+  #   ALiBi variant:  "alibi_dv3_<arch>[_<id>]"  e.g. "alibi_dv3_vits16"
+  #   Base DINOv3:    "dinov3_<arch>"             e.g. "dinov3_vits16"
+  #
+  # Naming convention: "dv3" = DINOv3 throughout the codebase.
+  # "nope" = No Positional Encoding; "alibi" = ALiBi positional encoding.
+  # arch codes: vits16 = ViT-Small patch-16, vits16plus = ViT-Small patch-16 (extended).
+  #
+  # DINOv2 and non-ViT architectures are not supported in this pipeline (future work).
   dino_model: "nope_dv3_vits16plus_1625"
-  model_path: "/path/to/model.pth"
-  lib_path: "/path/to/dinov3/"  # required for dv3/alibi models; null for dinov2
+  model_path: "/path/to/model.pth"  # checkpoint for nope_dv3_* / alibi_dv3_* variants
+  chk_path: null                    # weights path for base dinov3_* variants; null for nope/alibi
+  lib_path: "/path/to/dinov3/"      # path to DINOv3 library for torch.hub.load (all variants)
   img_size: 224              # target image size for both diad and porespy
   stride: 4
   fusion_method: "gating"    # "gating" | "learned_gating" | "attention"
@@ -338,6 +366,7 @@ The user guide covers:
 1. **Installation** — prerequisites, environment setup, cache directory configuration
 2. **Quick start** — end-to-end example from config creation to refined masks (diad and porespy)
 3. **Config reference** — every YAML field documented with type, default, and description; fields marked required vs optional
+4. **Model naming conventions** — explains the `dv3` shorthand for DINOv3; the `nope_dv3_<arch>` and `alibi_dv3_<arch>` formats; the `dinov3_<arch>` base format; the `vits16` / `vits16plus` architecture codes; which fields (`model_path`, `chk_path`, `lib_path`) each format requires; notes that ViT-S is the only tested architecture and that DINOv2 is future work
 4. **Creating configs in Python** — `XFuseConfig` constructor, `to_yaml()`, `replace()` with worked examples including generating experiment variants in a loop
 5. **Running the CLI** — each stage with example commands and expected terminal output; note that Stage 0 (`--stage data`) and Stage 2 (`--stage segment`) are CPU-only; Stages 1 and 3 use the GPU
 6. **Device management** — explains auto-detection (CUDA if available, else CPU) and how to override with `model.device: "cpu"` or `model.device: "cuda"`; documents which stages use the GPU and which run on CPU; explains that feature tensors are moved back to CPU before saving to avoid holding GPU memory between stages; the resolved device is always printed at the start of GPU stages for visibility in HPC job logs
