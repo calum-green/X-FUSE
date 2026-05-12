@@ -116,3 +116,101 @@ def test_config_resolve_device_auto():
     device = cfg.resolve_device()
     expected = "cuda" if torch.cuda.is_available() else "cpu"
     assert device == expected
+
+
+# ---------------------------------------------------------------------------
+# run_data tests
+# ---------------------------------------------------------------------------
+
+import pytest  # noqa: E402
+from unittest.mock import patch  # noqa: E402
+from x_fuse.pipeline import run_data  # noqa: E402
+
+
+def _make_diad_config(tmp_path, name="test") -> XFuseConfig:
+    # Create stub paths so _validate_paths passes
+    (tmp_path / "xct.h5").touch()
+    (tmp_path / "phases").mkdir(exist_ok=True)
+    return XFuseConfig(
+        name=name,
+        output_dir=str(tmp_path),
+        dataset_type="diad",
+        xct_path=str(tmp_path / "xct.h5"),
+        phase_folder=str(tmp_path / "phases"),
+        phases=["Na", "Zn"],
+        img_size=56,
+        vis_data=False,
+    )
+
+
+@patch("x_fuse.pipeline.load_diad_xrdct")
+@patch("x_fuse.pipeline.load_diad_xct_zn13x")
+def test_run_data_saves_expected_files(mock_xct, mock_xrd, tmp_path):
+    mock_xct.return_value = np.random.rand(56, 56, 5).astype(np.float32)
+    mock_xrd.return_value = {
+        "Na": np.random.rand(5, 8, 8).astype(np.float32),
+        "Zn": np.random.rand(5, 8, 8).astype(np.float32),
+    }
+    cfg = _make_diad_config(tmp_path)
+    run_data(cfg)
+    data_dir = tmp_path / "test" / "data"
+    assert (data_dir / "xct.npy").exists()
+    assert (data_dir / "Na_xrd.npy").exists()
+    assert (data_dir / "Zn_xrd.npy").exists()
+    assert (data_dir / "data_summary.txt").exists()
+
+
+@patch("x_fuse.pipeline.load_diad_xrdct")
+@patch("x_fuse.pipeline.load_diad_xct_zn13x")
+def test_run_data_custom_phases(mock_xct, mock_xrd, tmp_path):
+    mock_xct.return_value = np.random.rand(56, 56, 3).astype(np.float32)
+    mock_xrd.return_value = {
+        "alpha": np.random.rand(3, 8, 8).astype(np.float32),
+    }
+    cfg = XFuseConfig(
+        name="custom",
+        output_dir=str(tmp_path),
+        dataset_type="diad",
+        phases=["alpha"],
+        img_size=56,
+        vis_data=False,
+    )
+    run_data(cfg)
+    data_dir = tmp_path / "custom" / "data"
+    assert (data_dir / "alpha_xrd.npy").exists()
+    assert not (data_dir / "Na_xrd.npy").exists()
+
+
+def test_run_data_missing_xct_path_raises(tmp_path):
+    cfg = XFuseConfig(
+        name="bad",
+        output_dir=str(tmp_path),
+        dataset_type="diad",
+        xct_path="/nonexistent/path.h5",
+        phase_folder=str(tmp_path),
+        phases=["Na"],
+        vis_data=False,
+    )
+    with pytest.raises(FileNotFoundError, match="xct_path"):
+        run_data(cfg)
+
+
+@patch("x_fuse.pipeline.load_diad_xrdct")
+@patch("x_fuse.pipeline.load_diad_xct_zn13x")
+def test_run_data_invert_flag(mock_xct, mock_xrd, tmp_path):
+    xct_arr = np.ones((56, 56, 3), dtype=np.float32) * 0.3
+    mock_xct.return_value = xct_arr
+    mock_xrd.return_value = {"Na": np.ones((3, 8, 8), dtype=np.float32) * 0.4}
+    cfg = XFuseConfig(
+        name="inv",
+        output_dir=str(tmp_path),
+        dataset_type="diad",
+        phases=["Na"],
+        img_size=56,
+        invert=True,
+        vis_data=False,
+    )
+    run_data(cfg)
+    xct_saved = np.load(tmp_path / "inv" / "data" / "xct.npy")
+    # After inversion, values near 0.3 should become near 0.7
+    assert xct_saved.mean() > 0.5
