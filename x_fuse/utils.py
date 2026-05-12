@@ -3,7 +3,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import cv2
 import torch
-from PIL import Image
+from PIL import Image, ImageOps
+from typing import Any
 import torchvision.transforms as transforms
 import torch.nn as nn
 import torch.nn.functional as F
@@ -370,3 +371,103 @@ def get_dv3_model(
         )
     wrapper.to(device)
     return wrapper
+
+
+def invert_image(image: np.ndarray) -> np.ndarray:
+    return np.ones_like(image) - image
+
+
+def load_img(img: np.ndarray, transform) -> tuple:
+    unnormalize = transforms.Normalize(
+        mean=(-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225),
+        std=(1 / 0.229, 1 / 0.224, 1 / 0.225),
+    )
+    img_uint8 = (img * 255).astype(np.uint8)
+    image = ImageOps.autocontrast(Image.fromarray(img_uint8).convert("RGB"))
+    tensor = transform(image)
+    trans_img = transforms.ToPILImage()(unnormalize(tensor))
+    return tensor, trans_img
+
+
+def overlay_mask(
+    xct: np.ndarray,
+    mask: np.ndarray,
+    color: tuple = (1, 0.2, 0.2),
+    alpha: float = 0.4,
+) -> np.ndarray:
+    mask = mask.astype(bool)
+    rgb = np.stack([xct] * 3, axis=-1)
+    overlay = rgb.copy()
+    overlay[mask] = (1 - alpha) * rgb[mask] + alpha * np.array(color)
+    return np.clip(overlay, 0.0, 1.0)
+
+
+def xct_contrast(
+    threshold: float, pca_component: np.ndarray, xct_img: np.ndarray
+) -> float:
+    mask = pca_component > threshold
+    if mask.sum() == 0 or mask.all():
+        return 0.0
+    inside = xct_img[mask].mean()
+    outside = xct_img[~mask].mean()
+    return float(abs(inside - outside))
+
+
+def get_SAM2_score(
+    pca_comp: np.ndarray,
+    img_size: int,
+    predictor: Any,
+    threshold: float,
+    get_mask: bool = False,
+):
+    binary_map = pca_comp[:, 0].reshape(img_size, img_size) > threshold
+    mask_input = cv2.resize(binary_map.astype(np.float32), (256, 256))[None]
+    mask_input = (mask_input * 2 - 1) * 10
+    with torch.inference_mode():
+        if not get_mask:
+            _, scores, _ = predictor.predict(
+                mask_input=mask_input, multimask_output=False
+            )
+        else:
+            masks, scores, _ = predictor.predict(
+                mask_input=mask_input, multimask_output=False
+            )
+    return float(scores[0]) if not get_mask else (masks, float(scores[0]))
+
+
+def auto_threshold(
+    pca_comp: np.ndarray,
+    img_size: int,
+    predictor: Any,
+    n_iter: int = 10,
+    lr: float = 0.1,
+) -> tuple:
+    eps = 0.01 * (pca_comp[:, 0].max() - pca_comp[:, 0].min())
+    t_range = np.linspace(0, 1, 20)
+    # Initialise best before sweep to avoid NameError if no iteration improves score
+    best_t = float(t_range[0])
+    best_score = get_SAM2_score(pca_comp, img_size, predictor, best_t)
+    for t in t_range:
+        score = get_SAM2_score(pca_comp, img_size, predictor, float(t))
+        if score > best_score:
+            best_score = score
+            best_t = float(t)
+    t = best_t
+    history = [(t, best_score)]
+    for _ in range(n_iter):
+        grad = (
+            get_SAM2_score(pca_comp, img_size, predictor, t + eps)
+            - get_SAM2_score(pca_comp, img_size, predictor, t - eps)
+        ) / (2 * eps)
+        t = float(np.clip(t - lr * grad, 0.0, 1.0))
+        score = get_SAM2_score(pca_comp, img_size, predictor, t)
+        if score > best_score:
+            best_score = score
+            best_t = t
+            history.append((t, score))
+        if abs(score - best_score) < 1e-5:
+            break
+    best_mask = get_SAM2_score(pca_comp, img_size, predictor, best_t, get_mask=True)[0][
+        0
+    ].astype(bool)
+    return best_mask, best_t, best_score, history
