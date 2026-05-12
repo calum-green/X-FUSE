@@ -43,8 +43,7 @@ def load_xrdct_phase(
     return xrdct_data
 
 
-def load_diad_xct_zn13x(xct_path, **kwargs) -> np.array:
-
+def load_diad_xct_zn13x(xct_path: str, **kwargs) -> np.ndarray:
     return load_xct(xct_path, recon="Astra")[150:2000, 350:2200, 350:2200]
 
 
@@ -58,6 +57,5 @@ def load_diad_xrdct(phase_folder: str, phases: list, **kwargs) -> dict[str, np.n
     }
 
 
-def load_i13_xct(xct_path, **kwargs) -> np.array:
-
+def load_i13_xct(xct_path: str, **kwargs) -> np.ndarray:
     return load_xct(xct_path, recon="Tomopy")
