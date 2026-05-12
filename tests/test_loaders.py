@@ -3,7 +3,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pytest
 
-from x_fuse.loaders import load_xct, load_xrdct_phase
+from x_fuse.loaders import load_diad_xrdct, load_xct, load_xrdct_phase
 
 
 def _make_mock_h5(data: np.ndarray):
@@ -65,3 +65,18 @@ def test_load_xrdct_phase_returns_one_array_per_phase(mock_h5, mock_ls):
     assert len(result) == len(
         phases
     ), f"Expected {len(phases)} arrays, got {len(result)}"
+
+
+# ── load_diad_xrdct ───────────────────────────────────────────────────────────
+
+
+@patch("x_fuse.loaders.load_xrdct_phase")
+def test_load_diad_xrdct_returns_dict_keyed_by_phase(mock_load):
+    phases = ["Zn", "Na"]
+    mock_load.return_value = [np.ones((15, 20, 20)), np.ones((15, 20, 20)) * 2]
+
+    result = load_diad_xrdct("fake_folder", phases=phases)
+
+    assert isinstance(result, dict)
+    assert set(result.keys()) == set(phases)
+    assert result["Zn"].shape == (15, 20, 20)

@@ -48,18 +48,14 @@ def load_diad_xct_zn13x(xct_path, **kwargs) -> np.array:
     return load_xct(xct_path, recon="Astra")[150:2000, 350:2200, 350:2200]
 
 
-def load_diad_xrdct(phase_folder, phases, **kwargs) -> np.array:
-    # load the diad xrdct data from the given folders for phase A and phase B
-    # return the data as a numpy array
-
-    xrdct_phases = load_xrdct_phase(
+def load_diad_xrdct(phase_folder: str, phases: list, **kwargs) -> dict[str, np.ndarray]:
+    phase_arrays = load_xrdct_phase(
         phase_folder, shape=(21, 20, 20), phases=phases, crop=slice(5, -1), **kwargs
     )
 
-    for phase in phases:
-        xrdct_phases[phase] = np.flip(xrdct_phases[phase], axis=2).copy()
-
-    return xrdct_phases
+    return {
+        phase: np.flip(arr, axis=2).copy() for phase, arr in zip(phases, phase_arrays)
+    }
 
 
 def load_i13_xct(xct_path, **kwargs) -> np.array:
