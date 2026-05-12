@@ -9,6 +9,7 @@ import matplotlib.pyplot as plt
 from PIL import Image, ImageOps
 
 import hr_dv2.transform as tr
+from tqdm.auto import tqdm
 from hr_dv2.utils import do_single_pca, rescale_pca
 
 from .config import XFuseConfig
@@ -23,23 +24,30 @@ from .utils import invert_image, load_img, overlay_mask, xrd_to_tensor, get_ps_i
 
 def run_data(config: XFuseConfig) -> None:
     """Validate, load, format, and save input data. CPU-only."""
+    print(f"\n[X-FUSE] Stage 0 - data  ({config.name})")
     _set_cache_env(config)
+    print("  validating paths...")
     _validate_paths(config)
 
+    print(f"  loading {config.dataset_type} data...")
     xct_raw, xrd_raw = _load_raw_data(config)
+    print(f"  extracting sample (idx={config.sample_idx})...")
     xct_sample, xrd_sample = _extract_sample(xct_raw, xrd_raw, config)
 
     if config.invert:
+        print("  inverting images...")
         xct_sample = invert_image(xct_sample)
         xrd_sample = {p: invert_image(a) for p, a in xrd_sample.items()}
 
     _validate_arrays(xct_sample, xrd_sample)
 
+    print("  transforming XCT image...")
     img_tr = tr.get_input_transform(config.img_size, config.img_size)
     xct_transformed = _apply_xct_transform(xct_sample, img_tr)
 
     out_dir = config.output_path / "data"
     out_dir.mkdir(parents=True, exist_ok=True)
+    print(f"  saving to {out_dir}/")
 
     np.save(out_dir / "xct.npy", xct_transformed.astype(np.float32))
     for phase, arr in xrd_sample.items():
@@ -50,6 +58,7 @@ def run_data(config: XFuseConfig) -> None:
     if config.vis_data:
         _save_data_overview(out_dir, xct_transformed, xrd_sample)
         plt.show()
+    print("  done.")
 
 
 # ---------------------------------------------------------------------------
@@ -59,10 +68,11 @@ def run_data(config: XFuseConfig) -> None:
 
 def run_features(config: XFuseConfig) -> None:
     """XFuse forward pass + PCA. Requires GPU."""
+    print(f"\n[X-FUSE] Stage 1 - features  ({config.name})")
     from .fusion import XFuse
 
     device = config.resolve_device()
-    print(f"[run_features] device: {device}")
+    print(f"  device: {device}")
 
     data_dir = config.output_path / "data"
     _check_stage_inputs(
@@ -86,7 +96,8 @@ def run_features(config: XFuseConfig) -> None:
     feat_dir = config.output_path / "features"
     feat_dir.mkdir(parents=True, exist_ok=True)
 
-    for phase in config.phases:
+    for phase in tqdm(config.phases, desc="  phases", unit="phase"):
+        tqdm.write(f"    [{phase}] building XFuse model...")
         xrd_tensor = xrd_to_tensor(xrd_dict[phase], device)
 
         net = XFuse(
@@ -103,6 +114,7 @@ def run_features(config: XFuseConfig) -> None:
             lib_path=config.lib_path,
         )
         net.set_xrd_transforms(xrd_tensor, fwd, inv)
+        tqdm.write(f"    [{phase}] running forward pass...")
         feats = net.forward_sequential(xct_tensor, top_k=config.top_k)
 
         feats_cpu = feats[0].cpu()
@@ -112,6 +124,7 @@ def run_features(config: XFuseConfig) -> None:
         )
         np.save(feat_dir / f"{phase}_feats.npy", feats_np.astype(np.float32))
 
+        tqdm.write(f"    [{phase}] PCA ({config.n_components} components)...")
         pcaed = rescale_pca(
             do_single_pca(
                 feats_flat, config.n_components, n_samples=config.n_samples_pca
@@ -120,6 +133,7 @@ def run_features(config: XFuseConfig) -> None:
         np.save(feat_dir / f"{phase}_pca.npy", pcaed.astype(np.float32))
 
         _save_features_figures(feat_dir, phase, feats_np, pcaed, config)
+    print(f"  features saved to {feat_dir}/")
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +143,8 @@ def run_features(config: XFuseConfig) -> None:
 
 def run_segment(config: XFuseConfig, threshold: float) -> None:
     """Apply threshold to PCA component 0. CPU-only."""
+    print(f"\n[X-FUSE] Stage 2 - segment  ({config.name})")
+    print(f"  threshold: {threshold}")
     feat_dir = config.output_path / "features"
     data_dir = config.output_path / "data"
     _check_stage_inputs(
@@ -141,7 +157,7 @@ def run_segment(config: XFuseConfig, threshold: float) -> None:
     seg_dir.mkdir(parents=True, exist_ok=True)
     (seg_dir / "threshold.txt").write_text(str(threshold))
 
-    for phase in config.phases:
+    for phase in tqdm(config.phases, desc="  phases", unit="phase"):
         pcaed = np.load(feat_dir / f"{phase}_pca.npy")
         pca_map = pcaed[:, 0].reshape(config.img_size, config.img_size)
         mask = (pca_map > threshold).astype(np.uint8)
@@ -150,6 +166,7 @@ def run_segment(config: XFuseConfig, threshold: float) -> None:
         if config.vis_masks:
             _save_mask_figure(seg_dir, phase, xct, mask, threshold)
             plt.show()
+    print(f"  masks saved to {seg_dir}/")
 
 
 # ---------------------------------------------------------------------------
@@ -159,11 +176,12 @@ def run_segment(config: XFuseConfig, threshold: float) -> None:
 
 def run_refine(config: XFuseConfig) -> None:
     """SAM2 refinement of binary masks. Requires GPU."""
+    print(f"\n[X-FUSE] Stage 3 - refine  ({config.name})")
     from sam2.build_sam import build_sam2
     from sam2.sam2_image_predictor import SAM2ImagePredictor
 
     device = config.resolve_device()
-    print(f"[run_refine] device: {device}")
+    print(f"  device: {device}")
 
     seg_dir = config.output_path / "segment"
     data_dir = config.output_path / "data"
@@ -176,6 +194,7 @@ def run_refine(config: XFuseConfig) -> None:
 
     sam2_cfg = f"{config.sam2_folder}{config.sam2_model}.yaml"
     sam2_ckpt = f"{config.sam2_folder}{config.sam2_model}.pt"
+    print("  loading SAM2 model...")
     sam2_model = build_sam2(sam2_cfg, sam2_ckpt, device=device)
     predictor = SAM2ImagePredictor(sam2_model)
 
@@ -187,7 +206,7 @@ def run_refine(config: XFuseConfig) -> None:
     refine_dir = config.output_path / "refine"
     refine_dir.mkdir(parents=True, exist_ok=True)
 
-    for phase in config.phases:
+    for phase in tqdm(config.phases, desc="  phases", unit="phase"):
         mask = np.load(seg_dir / f"{phase}_mask.npy").astype(np.float32)
         mask_input = cv2.resize(mask, (256, 256))[None]
         mask_input = (mask_input * 2 - 1) * 10
@@ -197,12 +216,14 @@ def run_refine(config: XFuseConfig) -> None:
             )
         refined = masks[0].astype(bool)
         np.save(refine_dir / f"{phase}_refined_mask.npy", refined)
+        tqdm.write(f"    [{phase}] SAM2 score: {float(scores[0]):.3f}")
 
         if config.vis_sam2:
             _save_sam2_figure(refine_dir, phase, xct, refined, float(scores[0]))
             plt.show()
 
     config.to_yaml(str(refine_dir / "config.yaml"))
+    print(f"  refined masks saved to {refine_dir}/")
 
 
 # ---------------------------------------------------------------------------
