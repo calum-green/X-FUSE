@@ -45,9 +45,10 @@ def load_xrdct_phase(
         xrdct_i = np.zeros(shape)
         for idx in range(shape[0]):
             with h5py.File(os.path.join(phase_folder, files[idx]), "r") as file:
-                xrdct_i[idx] += np.array(
-                    file[f"{entry_names.get(phases[i])}"][:]
-                ).squeeze()
+                data = np.transpose(
+                    np.array(file[entry_names.get(phases[i])]), (0, 1, 2)
+                )
+                xrdct_i[idx] += data.squeeze()
         xrdct_data.append(xrdct_i)
 
     return xrdct_data
