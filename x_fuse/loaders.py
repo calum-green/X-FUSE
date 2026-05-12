@@ -18,7 +18,12 @@ def load_xct(xct_path: str, recon: str = "Tomopy", **kwargs) -> np.ndarray:
 
 
 def load_xrdct_phase(
-    phase_folder: str, phases: list, shape: list, crop: slice = slice(None), **kwargs
+    phase_folder: str,
+    phases: list,
+    shape: list,
+    crop: slice = slice(None),
+    entry_name: str = "data",
+    **kwargs,
 ) -> list[np.ndarray]:
     xrdct_data = []
     for i in range(len(phases)):
@@ -37,7 +42,7 @@ def load_xrdct_phase(
         xrdct_i = np.zeros(shape)
         for idx in range(shape[0]):
             with h5py.File(os.path.join(phase_folder, files[idx]), "r") as f:
-                xrdct_i[idx] += np.array(f["data"][:]).squeeze()
+                xrdct_i[idx] += np.array(f[entry_name][:]).squeeze()
         xrdct_data.append(xrdct_i)
 
     return xrdct_data
