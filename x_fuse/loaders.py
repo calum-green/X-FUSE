@@ -22,9 +22,10 @@ def load_xrdct_phase(
     phases: list,
     shape: list,
     crop: slice = slice(None),
-    entry_name: str = "data",
+    entry_names: dict[str, str] = {"default": "data"},
     **kwargs,
 ) -> list[np.ndarray]:
+
     xrdct_data = []
     for i in range(len(phases)):
         files = [f for f in os.listdir(phase_folder) if phases[i] in f][crop]
@@ -42,7 +43,9 @@ def load_xrdct_phase(
         xrdct_i = np.zeros(shape)
         for idx in range(shape[0]):
             with h5py.File(os.path.join(phase_folder, files[idx]), "r") as f:
-                xrdct_i[idx] += np.array(f[entry_name][:]).squeeze()
+                xrdct_i[idx] += np.array(
+                    f[entry_names.get(phases[i], "data")][:]
+                ).squeeze()
         xrdct_data.append(xrdct_i)
 
     return xrdct_data
@@ -52,9 +55,18 @@ def load_diad_xct_zn13x(xct_path: str, **kwargs) -> np.ndarray:
     return load_xct(xct_path, recon="Astra")[150:2000, 350:2200, 350:2200]
 
 
-def load_diad_xrdct(phase_folder: str, phases: list, **kwargs) -> dict[str, np.ndarray]:
+def load_diad_xrdct(
+    phase_folder: str, phases: list[str] = ["Zn", "Na"], **kwargs
+) -> dict[str, np.ndarray]:
     phase_arrays = load_xrdct_phase(
-        phase_folder, shape=(21, 20, 20), phases=phases, crop=slice(5, -1), **kwargs
+        phase_folder,
+        shape=(21, 20, 20),
+        phases=phases,
+        crop=slice(5, -1),
+        entry_names=dict(
+            {"Na": "entry/peak at q~1.651", "Zn": "entry/peak at q~1.656"}
+        ),
+        **kwargs,
     )
 
     return {
