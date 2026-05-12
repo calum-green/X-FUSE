@@ -90,6 +90,7 @@ model:
   loss_fn: "bce"             # "bce" | "pearson"
   top_k: null                # channels to keep; null defaults to C // 4
   invert: false              # invert image intensities before processing
+  device: null               # null = auto-detect (CUDA if available, else CPU); or "cuda" / "cpu"
 
 augmentation:
   shift_distances: [1, 2]
@@ -178,18 +179,24 @@ Validates, loads, and formats input data. Runs on CPU; no GPU required. Intended
 
 ### Stage 1 — `run_features(config: XFuseConfig) -> None`
 
-Reads prepared arrays from Stage 0. No data loading or validation here.
+Reads prepared arrays from Stage 0. No data loading or validation here. First GPU-required stage.
 
-1. Detect device (CUDA → MPS → CPU)
+**Device resolution** (done once at stage start, reused for all phases):
+- If `config.model.device` is set, use that value directly
+- Otherwise auto-detect: use `"cuda"` if `torch.cuda.is_available()`, else `"cpu"`
+- Print the resolved device to stdout so it is visible in HPC job logs
+
+1. Resolve device as above
 2. Load `xct.npy` and `<phase>_xrd.npy` from `outputs/<name>/data/` — raise `FileNotFoundError` with message `"Run --stage data first"` if absent
-3. Build image tensor and XRD tensors per phase (tensorise, move to device)
+3. Build image tensor (`torch.float16`) and XRD tensors per phase; move both to resolved device
 4. Build augmentation transforms (`augmentation.shift_distances`, `augmentation.use_flip`)
-5. Initialise one `XFuse` instance per phase, call `set_xrd_transforms`, then `forward_sequential`
-6. Compute PCA on fused features (`pca.n_components`, `pca.n_samples`)
-7. Save outputs to `outputs/<name>/features/`:
-   - `<phase>_feats.npy` — fused feature array
+5. For each phase: initialise `XFuse` on resolved device, call `set_xrd_transforms` (XRD tensor already on device), then `forward_sequential`
+6. Move output feature tensors back to CPU before PCA and saving (avoids holding GPU memory)
+7. Compute PCA on fused features (`pca.n_components`, `pca.n_samples`)
+8. Save outputs to `outputs/<name>/features/`:
+   - `<phase>_feats.npy` — fused feature array (CPU, float32)
    - `<phase>_pca.npy` — PCA-reduced feature array
-8. Save figures (always to disk; shown inline if `vis.*` flag is true):
+9. Save figures (always to disk; shown inline if `vis.*` flag is true):
    - `dino_pca.png` if `vis.dino_features`
    - `<phase>_fused.png` if `vis.fused_maps`
    - `<phase>_pca_grid.png` if `vis.pca_components`
@@ -205,10 +212,11 @@ Reads prepared arrays from Stage 0. No data loading or validation here.
 
 ### Stage 3 — `run_refine(config: XFuseConfig) -> None`
 
-1. Load `<phase>_mask.npy` from `outputs/<name>/segment/` and `xct.npy` from `outputs/<name>/data/`
-2. Initialise SAM2 predictor from `sam2.folder` + `sam2.model`
-3. Set predictor image (XCT converted to uint8 RGB with autocontrast)
-4. For each phase: resize binary mask → logit prompt → `predictor.predict`
+1. Resolve device using the same logic as Stage 1 (config override → CUDA → CPU)
+2. Load `<phase>_mask.npy` from `outputs/<name>/segment/` and `xct.npy` from `outputs/<name>/data/`
+3. Initialise SAM2 predictor on resolved device from `sam2.folder` + `sam2.model`
+4. Set predictor image (XCT converted to uint8 RGB with autocontrast)
+5. For each phase: resize binary mask → logit prompt tensor on resolved device → `predictor.predict`
 5. Save outputs to `outputs/<name>/refine/`:
    - `<phase>_refined_mask.npy`
    - a copy of the YAML config used (`config.yaml`) for reproducibility
@@ -331,15 +339,16 @@ The user guide covers:
 2. **Quick start** — end-to-end example from config creation to refined masks (diad and porespy)
 3. **Config reference** — every YAML field documented with type, default, and description; fields marked required vs optional
 4. **Creating configs in Python** — `XFuseConfig` constructor, `to_yaml()`, `replace()` with worked examples including generating experiment variants in a loop
-5. **Running the CLI** — each stage with example commands and expected terminal output; note that Stage 0 (`--stage data`) is CPU-only and fast, while Stage 1 (`--stage features`) requires a GPU
-6. **Using the notebook driver** — annotated version of `run_pipeline.ipynb`; explains how to create a config inline vs load from file
-7. **Dataset types** — `diad` vs `porespy` config differences and which loader functions are called; explains that `porespy` ignores `xct_path`, `phase_folder`, and `entry_names`
-8. **Phase naming** — explains that `dataset.phases` drives all output file names (e.g. `<phase>_xrd.npy`, `<phase>_mask.npy`); no phase names are hardcoded; a single-phase run just sets `phases: ["Zn"]`; future multi-phase datasets work by extending the list
-9. **entry_names in detail** — explains the two roles of the phase string (filename filter + HDF5 entry key lookup); shows how to find the correct entry path for a new `.nxs` dataset; documents the warning emitted when `entry_names` is absent and how to suppress it by adding the field; notes that omitting it falls back to the loader default which may not be correct for new datasets
-10. **Data stage in detail** — what is validated, what errors to expect and how to fix them (missing files, shape mismatches, out-of-range `sample_idx`), what `data_summary.txt` contains, and how to interpret `data_overview.png`
-11. **Visualisation flags** — what each `vis.*` flag controls and when to enable them; `vis.data: true` is the default and recommended for first runs; all figures are always saved to disk regardless of flags — flags only suppress inline display for headless HPC runs
-12. **Output files** — description of every file saved by each stage, including the `config.yaml` copy in `refine/` and `threshold.txt` in `segment/`
-13. **Extending the pipeline** — how to add a new dataset type (add a loader function, register it in the loader registry in `pipeline.py`), how to add a new stage, and how to add new visualisations
+5. **Running the CLI** — each stage with example commands and expected terminal output; note that Stage 0 (`--stage data`) and Stage 2 (`--stage segment`) are CPU-only; Stages 1 and 3 use the GPU
+6. **Device management** — explains auto-detection (CUDA if available, else CPU) and how to override with `model.device: "cpu"` or `model.device: "cuda"`; documents which stages use the GPU and which run on CPU; explains that feature tensors are moved back to CPU before saving to avoid holding GPU memory between stages; the resolved device is always printed at the start of GPU stages for visibility in HPC job logs
+7. **Using the notebook driver** — annotated version of `run_pipeline.ipynb`; explains how to create a config inline vs load from file
+8. **Dataset types** — `diad` vs `porespy` config differences and which loader functions are called; explains that `porespy` ignores `xct_path`, `phase_folder`, and `entry_names`
+9. **Phase naming** — explains that `dataset.phases` drives all output file names (e.g. `<phase>_xrd.npy`, `<phase>_mask.npy`); no phase names are hardcoded; a single-phase run just sets `phases: ["Zn"]`; future multi-phase datasets work by extending the list
+10. **entry_names in detail** — explains the two roles of the phase string (filename filter + HDF5 entry key lookup); shows how to find the correct entry path for a new `.nxs` dataset; documents the warning emitted when `entry_names` is absent and how to suppress it by adding the field; notes that omitting it falls back to the loader default which may not be correct for new datasets
+11. **Data stage in detail** — what is validated, what errors to expect and how to fix them (missing files, shape mismatches, out-of-range `sample_idx`), what `data_summary.txt` contains, and how to interpret `data_overview.png`
+12. **Visualisation flags** — what each `vis.*` flag controls and when to enable them; `vis.data: true` is the default and recommended for first runs; all figures are always saved to disk regardless of flags — flags only suppress inline display for headless HPC runs
+13. **Output files** — description of every file saved by each stage, including the `config.yaml` copy in `refine/` and `threshold.txt` in `segment/`
+14. **Extending the pipeline** — how to add a new dataset type (add a loader function, register it in the loader registry in `pipeline.py`), how to add a new stage, and how to add new visualisations
 
 ---
 
