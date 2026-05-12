@@ -1,4 +1,5 @@
 import numpy as np
+import torch
 from x_fuse.utils import invert_image, xct_contrast, overlay_mask
 
 
@@ -214,3 +215,179 @@ def test_run_data_invert_flag(mock_xct, mock_xrd, tmp_path):
     xct_saved = np.load(tmp_path / "inv" / "data" / "xct.npy")
     # After inversion, values near 0.3 should become near 0.7
     assert xct_saved.mean() > 0.5
+
+
+# ---------------------------------------------------------------------------
+# run_features / run_segment / run_refine tests
+# ---------------------------------------------------------------------------
+
+from unittest.mock import MagicMock  # noqa: E402
+from x_fuse.pipeline import run_features, run_segment, run_refine  # noqa: E402
+
+
+def _write_fake_data(tmp_path, name, phases, img_size=56):
+    data_dir = tmp_path / name / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    xct = np.random.rand(img_size, img_size).astype(np.float32)
+    np.save(data_dir / "xct.npy", xct)
+    for phase in phases:
+        xrd = np.random.rand(8, 8).astype(np.float32)
+        np.save(data_dir / f"{phase}_xrd.npy", xrd)
+    return xct
+
+
+def _write_fake_features(tmp_path, name, phases, img_size=56, n_components=3):
+    feat_dir = tmp_path / name / "features"
+    feat_dir.mkdir(parents=True, exist_ok=True)
+    for phase in phases:
+        pca = np.random.rand(img_size * img_size, n_components).astype(np.float32)
+        np.save(feat_dir / f"{phase}_pca.npy", pca)
+
+
+def _write_fake_masks(tmp_path, name, phases, img_size=56):
+    seg_dir = tmp_path / name / "segment"
+    seg_dir.mkdir(parents=True, exist_ok=True)
+    (seg_dir / "threshold.txt").write_text("0.5")
+    for phase in phases:
+        mask = np.random.randint(0, 2, (img_size, img_size), dtype=np.uint8)
+        np.save(seg_dir / f"{phase}_mask.npy", mask)
+
+
+@patch("x_fuse.fusion.XFuse")
+def test_run_features_saves_expected_files(mock_xfuse_cls, tmp_path):
+    phases = ["Na", "Zn"]
+    img_size = 56
+    n_comp = 3
+    _write_fake_data(tmp_path, "run", phases, img_size)
+
+    fake_feats = torch.zeros(1, 384, img_size, img_size)
+    mock_net = MagicMock()
+    mock_net.forward_sequential.return_value = fake_feats
+    mock_xfuse_cls.return_value = mock_net
+
+    cfg = XFuseConfig(
+        name="run",
+        output_dir=str(tmp_path),
+        phases=phases,
+        img_size=img_size,
+        n_components=n_comp,
+        vis_fused_maps=False,
+        vis_pca_components=False,
+        device="cpu",
+    )
+
+    with (
+        patch(
+            "x_fuse.pipeline.tr.to_numpy",
+            return_value=np.zeros((384, img_size, img_size)),
+        ),
+        patch(
+            "x_fuse.pipeline.tr.flatten",
+            return_value=np.zeros((img_size * img_size, 384)),
+        ),
+        patch(
+            "x_fuse.pipeline.do_single_pca",
+            return_value=np.zeros((img_size * img_size, n_comp)),
+        ),
+        patch(
+            "x_fuse.pipeline.rescale_pca",
+            return_value=np.zeros((img_size * img_size, n_comp)),
+        ),
+        patch(
+            "x_fuse.pipeline.load_img",
+            return_value=(torch.zeros(3, img_size, img_size), None),
+        ),
+    ):
+        run_features(cfg)
+
+    feat_dir = tmp_path / "run" / "features"
+    for phase in phases:
+        assert (feat_dir / f"{phase}_feats.npy").exists()
+        assert (feat_dir / f"{phase}_pca.npy").exists()
+
+
+def test_run_features_missing_data_raises(tmp_path):
+    cfg = XFuseConfig(
+        name="missing",
+        output_dir=str(tmp_path),
+        phases=["Na"],
+        device="cpu",
+    )
+    with pytest.raises(FileNotFoundError, match="data"):
+        run_features(cfg)
+
+
+def test_run_segment_saves_masks_and_threshold(tmp_path):
+    phases = ["Na", "Zn"]
+    img_size = 56
+    _write_fake_data(tmp_path, "seg", phases, img_size)
+    _write_fake_features(tmp_path, "seg", phases, img_size)
+
+    cfg = XFuseConfig(
+        name="seg",
+        output_dir=str(tmp_path),
+        phases=phases,
+        img_size=img_size,
+        vis_masks=False,
+    )
+    run_segment(cfg, threshold=0.3)
+
+    seg_dir = tmp_path / "seg" / "segment"
+    assert (seg_dir / "threshold.txt").read_text() == "0.3"
+    for phase in phases:
+        assert (seg_dir / f"{phase}_mask.npy").exists()
+        mask = np.load(seg_dir / f"{phase}_mask.npy")
+        assert mask.dtype == np.uint8
+        assert set(np.unique(mask)).issubset({0, 1})
+
+
+def test_run_segment_missing_features_raises(tmp_path):
+    cfg = XFuseConfig(
+        name="miss",
+        output_dir=str(tmp_path),
+        phases=["Na"],
+    )
+    with pytest.raises(FileNotFoundError, match="features"):
+        run_segment(cfg, threshold=0.5)
+
+
+@patch("sam2.build_sam.build_sam2")
+@patch("sam2.sam2_image_predictor.SAM2ImagePredictor")
+def test_run_refine_saves_refined_masks_and_config(
+    mock_predictor_cls, mock_build, tmp_path
+):
+    phases = ["Na"]
+    img_size = 56
+    _write_fake_data(tmp_path, "ref", phases, img_size)
+    _write_fake_masks(tmp_path, "ref", phases, img_size)
+
+    fake_mask = np.ones((1, img_size, img_size), dtype=bool)
+    fake_scores = np.array([0.95])
+    mock_predictor = MagicMock()
+    mock_predictor.predict.return_value = (fake_mask, fake_scores, None)
+    mock_predictor_cls.return_value = mock_predictor
+    mock_build.return_value = MagicMock()
+
+    cfg = XFuseConfig(
+        name="ref",
+        output_dir=str(tmp_path),
+        phases=phases,
+        img_size=img_size,
+        vis_sam2=False,
+        device="cpu",
+    )
+    run_refine(cfg)
+
+    refine_dir = tmp_path / "ref" / "refine"
+    assert (refine_dir / "Na_refined_mask.npy").exists()
+    assert (refine_dir / "config.yaml").exists()
+
+
+def test_run_refine_missing_segment_raises(tmp_path):
+    cfg = XFuseConfig(
+        name="miss",
+        output_dir=str(tmp_path),
+        phases=["Na"],
+    )
+    with pytest.raises(FileNotFoundError, match="segment"):
+        run_refine(cfg)
