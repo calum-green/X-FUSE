@@ -253,6 +253,26 @@ def test_run_data_invert_flag(mock_xct, mock_xrd, tmp_path):
 
 
 # ---------------------------------------------------------------------------
+# _load_raw_data print tests
+# ---------------------------------------------------------------------------
+
+
+@patch("x_fuse.pipeline.load_diad_xrdct")
+@patch("x_fuse.pipeline.load_diad_xct_zn13x")
+def test_load_raw_data_prints_loading_steps(mock_xct, mock_xrd, tmp_path, capsys):
+    mock_xct.return_value = np.random.rand(3, 32, 32).astype(np.float32)
+    mock_xrd.return_value = {
+        "Na": np.random.rand(5, 8, 8).astype(np.float32),
+        "Zn": np.random.rand(5, 8, 8).astype(np.float32),
+    }
+    cfg = _make_diad_config(tmp_path)
+    run_data(cfg)
+    out = capsys.readouterr().out
+    assert "loading XCT" in out
+    assert "loading XRDCT" in out
+
+
+# ---------------------------------------------------------------------------
 # run_features / run_segment / run_refine tests
 # ---------------------------------------------------------------------------
 

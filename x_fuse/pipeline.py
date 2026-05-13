@@ -253,18 +253,22 @@ def _validate_paths(config: XFuseConfig) -> None:
 
 def _load_raw_data(config: XFuseConfig) -> tuple:
     if config.dataset_type == "diad":
+        print("  loading XCT...")
         xct_raw = load_diad_xct_zn13x(config.xct_path)
         if config.entry_names:
-            phase_arrays = load_xrdct_phase(
-                config.phase_folder,
-                phases=config.phases,
-                shape=(21, 20, 20),
-                crop=slice(5, -1),
-                entry_names=config.entry_names,
-            )
-            xrd_raw = dict(zip(config.phases, phase_arrays))
-            xrd_raw = {p: np.flip(arr, axis=2).copy() for p, arr in xrd_raw.items()}
+            xrd_raw = {}
+            for phase in config.phases:
+                print(f"  loading XRDCT [{phase}]...")
+                [arr] = load_xrdct_phase(
+                    config.phase_folder,
+                    phases=[phase],
+                    shape=(21, 20, 20),
+                    crop=slice(5, -1),
+                    entry_names={phase: config.entry_names[phase]},
+                )
+                xrd_raw[phase] = np.flip(arr, axis=2).copy()
         else:
+            print(f"  loading XRDCT ({', '.join(config.phases)})...")
             xrd_raw = load_diad_xrdct(config.phase_folder, phases=config.phases)
         return xct_raw, xrd_raw
 
@@ -273,7 +277,8 @@ def _load_raw_data(config: XFuseConfig) -> tuple:
             raise ValueError(
                 f"porespy dataset requires exactly 2 phases, got {config.phases}"
             )
-        gray_imgs, low_A, low_B = get_ps_images(config.img_size)
+        print("  loading porespy data...")
+        gray_imgs, low_A, low_B = get_ps_images()
         xrd_raw = {
             config.phases[0]: np.stack(low_A),
             config.phases[1]: np.stack(low_B),
