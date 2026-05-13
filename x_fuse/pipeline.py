@@ -288,14 +288,13 @@ def _load_raw_data(config: XFuseConfig) -> tuple:
     raise ValueError(f"Unknown dataset_type: {config.dataset_type!r}")
 
 
+def _snap_to_multiple_of_16(n: int) -> int:
+    return (n // 16) * 16
+
+
 def _extract_sample(xct_raw: np.ndarray, xrd_raw: dict, config: XFuseConfig) -> tuple:
-    # (H, W, D) diad volume: slice along depth axis
-    # (N, H, W) porespy stack: index first axis
-    if xct_raw.ndim == 3 and xct_raw.shape[0] != xct_raw.shape[1]:
-        xct_sample = xct_raw[config.sample_idx]
-    else:
-        xct_sample = xct_raw[:, :, config.sample_idx]
-    xrd_sample = {p: arr[config.sample_idx] for p, arr in xrd_raw.items()}
+    xct_sample = xct_raw[config.xct_sample_idx]
+    xrd_sample = {p: arr[config.xrdct_sample_idx] for p, arr in xrd_raw.items()}
     return xct_sample, xrd_sample
 
 

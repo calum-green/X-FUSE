@@ -123,6 +123,41 @@ def test_config_resolve_device_auto():
 
 
 # ---------------------------------------------------------------------------
+# _snap_to_multiple_of_16 / _extract_sample tests
+# ---------------------------------------------------------------------------
+
+from x_fuse.pipeline import _snap_to_multiple_of_16, _extract_sample  # noqa: E402
+
+
+def test_snap_to_multiple_of_16():
+    assert _snap_to_multiple_of_16(1850) == 1840
+    assert _snap_to_multiple_of_16(224) == 224
+    assert _snap_to_multiple_of_16(300) == 288
+    assert _snap_to_multiple_of_16(16) == 16
+    assert _snap_to_multiple_of_16(15) == 0
+
+
+def test_extract_sample_uses_separate_indices():
+    xct_raw = np.zeros((5, 32, 32), dtype=np.float32)
+    xct_raw[2] = 1.0
+    xrd_raw = {
+        "Na": np.zeros((3, 8, 8), dtype=np.float32),
+        "Zn": np.zeros((3, 8, 8), dtype=np.float32),
+    }
+    xrd_raw["Na"][1] = 2.0
+    xrd_raw["Zn"][1] = 3.0
+
+    cfg = XFuseConfig(name="t", xct_sample_idx=2, xrdct_sample_idx=1)
+    xct_s, xrd_s = _extract_sample(xct_raw, xrd_raw, cfg)
+
+    assert xct_s.shape == (32, 32)
+    assert xct_s.mean() == pytest.approx(1.0)
+    assert xrd_s["Na"].shape == (8, 8)
+    assert xrd_s["Na"].mean() == pytest.approx(2.0)
+    assert xrd_s["Zn"].mean() == pytest.approx(3.0)
+
+
+# ---------------------------------------------------------------------------
 # run_data tests
 # ---------------------------------------------------------------------------
 
