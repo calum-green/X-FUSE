@@ -3,6 +3,7 @@
 import numpy as np
 import h5py
 import os
+from scipy.ndimage import rotate
 
 
 def load_xct(xct_path: str, recon: str = "Tomopy", **kwargs) -> np.ndarray:
@@ -73,7 +74,8 @@ def load_diad_xrdct(
     )
 
     return {
-        phase: np.flip(arr, axis=2).copy() for phase, arr in zip(phases, phase_arrays)
+        phase: rotate(np.flip(arr, axis=2).copy(), angle=30, axes=(1, 2), reshape=False)
+        for phase, arr in zip(phases, phase_arrays)
     }
 
 
