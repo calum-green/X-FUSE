@@ -309,6 +309,9 @@ def _validate_arrays(xct: np.ndarray, xrd_dict: dict) -> None:
 
 
 def _apply_xct_transform(xct: np.ndarray, transform) -> np.ndarray:
+    lo, hi = float(xct.min()), float(xct.max())
+    if hi > lo:
+        xct = (xct - lo) / (hi - lo)
     tensor, _ = load_img(xct, transform)
     return tensor.permute(1, 2, 0).numpy()[:, :, 0]
 
