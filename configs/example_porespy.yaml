@@ -9,7 +9,8 @@ dataset:
   type: "porespy"
   # porespy generates synthetic data — no file paths needed
   phases: ["blobs", "spheres"]
-  sample_idx: -1
+  xct_sample_idx: -1
+  xrdct_sample_idx: -1
   n_samples: 10
   downsample_factor: 10
 
@@ -18,7 +19,6 @@ model:
   model_path: "/dls/science/groups/imaging/infuse/XRDCT_Fusion/dinosaw-env/models/dinov3_SMALL_REG_1625_plus_alibi/best_model.pth"
   chk_path: null
   lib_path: "/dls/science/groups/imaging/infuse/DINOv3/dinov3/"
-  img_size: 224
   stride: 4
   fusion_method: "gating"
   loss_fn: "bce"

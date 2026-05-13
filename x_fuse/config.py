@@ -23,16 +23,16 @@ class XFuseConfig:
     phase_folder: Optional[str] = None
     phases: list = field(default_factory=lambda: ["Na", "Zn"])
     entry_names: Optional[dict] = None
-    sample_idx: int = -1
     n_samples: int = 10
     downsample_factor: int = 10
+    xct_sample_idx: int = -1
+    xrdct_sample_idx: int = -1
 
     # model
     dino_model: str = "nope_dv3_vits16plus_1625"
     model_path: Optional[str] = None
     chk_path: Optional[str] = None
     lib_path: Optional[str] = None
-    img_size: int = 224
     stride: int = 4
     fusion_method: str = "gating"
     loss_fn: str = "bce"
@@ -81,14 +81,14 @@ class XFuseConfig:
             phase_folder=ds.get("phase_folder"),
             phases=ds.get("phases", ["Na", "Zn"]),
             entry_names=ds.get("entry_names"),
-            sample_idx=ds.get("sample_idx", -1),
             n_samples=ds.get("n_samples", 10),
             downsample_factor=ds.get("downsample_factor", 10),
+            xct_sample_idx=ds.get("xct_sample_idx", -1),
+            xrdct_sample_idx=ds.get("xrdct_sample_idx", -1),
             dino_model=model.get("dino_model", "nope_dv3_vits16plus_1625"),
             model_path=model.get("model_path"),
             chk_path=model.get("chk_path"),
             lib_path=model.get("lib_path"),
-            img_size=model.get("img_size", 224),
             stride=model.get("stride", 4),
             fusion_method=model.get("fusion_method", "gating"),
             loss_fn=model.get("loss_fn", "bce"),
@@ -120,16 +120,16 @@ class XFuseConfig:
                 "phase_folder": self.phase_folder,
                 "phases": self.phases,
                 "entry_names": self.entry_names,
-                "sample_idx": self.sample_idx,
                 "n_samples": self.n_samples,
                 "downsample_factor": self.downsample_factor,
+                "xct_sample_idx": self.xct_sample_idx,
+                "xrdct_sample_idx": self.xrdct_sample_idx,
             },
             "model": {
                 "dino_model": self.dino_model,
                 "model_path": self.model_path,
                 "chk_path": self.chk_path,
                 "lib_path": self.lib_path,
-                "img_size": self.img_size,
                 "stride": self.stride,
                 "fusion_method": self.fusion_method,
                 "loss_fn": self.loss_fn,

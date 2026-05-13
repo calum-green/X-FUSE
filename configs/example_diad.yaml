@@ -13,7 +13,8 @@ dataset:
   entry_names:
     Na: "entry/peak at q~1.651"
     Zn: "entry/peak at q~1.656"
-  sample_idx: -1
+  xct_sample_idx: -1
+  xrdct_sample_idx: -1
 
 model:
   # Supported: "nope_dv3_<arch>", "alibi_dv3_<arch>", "dinov3_<arch>"
@@ -22,7 +23,6 @@ model:
   model_path: "/dls/science/groups/imaging/infuse/XRDCT_Fusion/dinosaw-env/models/dinov3_SMALL_REG_1625_plus_alibi/best_model.pth"
   chk_path: null
   lib_path: "/dls/science/groups/imaging/infuse/DINOv3/dinov3/"
-  img_size: 224
   stride: 4
   fusion_method: "gating"
   loss_fn: "bce"

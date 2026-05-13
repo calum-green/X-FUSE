@@ -65,12 +65,13 @@ def test_config_defaults():
     cfg = minimal_config()
     assert cfg.dataset_type == "diad"
     assert cfg.fusion_method == "gating"
-    assert cfg.img_size == 224
     assert cfg.stride == 4
     assert cfg.vis_data is True
     assert cfg.vis_dino_features is False
     assert cfg.device is None
     assert cfg.phases == ["Na", "Zn"]
+    assert cfg.xct_sample_idx == -1
+    assert cfg.xrdct_sample_idx == -1
 
 
 def test_config_roundtrip(tmp_path):
@@ -78,7 +79,8 @@ def test_config_roundtrip(tmp_path):
         name="roundtrip",
         dataset_type="porespy",
         phases=["alpha", "beta"],
-        img_size=128,
+        xct_sample_idx=5,
+        xrdct_sample_idx=10,
         invert=True,
     )
     yaml_path = str(tmp_path / "cfg.yaml")
@@ -87,7 +89,8 @@ def test_config_roundtrip(tmp_path):
     assert loaded.name == "roundtrip"
     assert loaded.dataset_type == "porespy"
     assert loaded.phases == ["alpha", "beta"]
-    assert loaded.img_size == 128
+    assert loaded.xct_sample_idx == 5
+    assert loaded.xrdct_sample_idx == 10
     assert loaded.invert is True
 
 
@@ -139,7 +142,6 @@ def _make_diad_config(tmp_path, name="test") -> XFuseConfig:
         xct_path=str(tmp_path / "xct.h5"),
         phase_folder=str(tmp_path / "phases"),
         phases=["Na", "Zn"],
-        img_size=56,
         vis_data=False,
     )
 
@@ -173,7 +175,6 @@ def test_run_data_custom_phases(mock_xct, mock_xrd, tmp_path):
         output_dir=str(tmp_path),
         dataset_type="diad",
         phases=["alpha"],
-        img_size=56,
         vis_data=False,
     )
     run_data(cfg)
@@ -207,7 +208,6 @@ def test_run_data_invert_flag(mock_xct, mock_xrd, tmp_path):
         output_dir=str(tmp_path),
         dataset_type="diad",
         phases=["Na"],
-        img_size=56,
         invert=True,
         vis_data=False,
     )
@@ -269,7 +269,6 @@ def test_run_features_saves_expected_files(mock_xfuse_cls, tmp_path):
         name="run",
         output_dir=str(tmp_path),
         phases=phases,
-        img_size=img_size,
         n_components=n_comp,
         vis_fused_maps=False,
         vis_pca_components=False,
@@ -327,7 +326,6 @@ def test_run_segment_saves_masks_and_threshold(tmp_path):
         name="seg",
         output_dir=str(tmp_path),
         phases=phases,
-        img_size=img_size,
         vis_masks=False,
     )
     run_segment(cfg, threshold=0.3)
@@ -372,7 +370,6 @@ def test_run_refine_saves_refined_masks_and_config(
         name="ref",
         output_dir=str(tmp_path),
         phases=phases,
-        img_size=img_size,
         vis_sam2=False,
         device="cpu",
     )
