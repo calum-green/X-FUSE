@@ -149,13 +149,14 @@ def run_segment(config: XFuseConfig, threshold: float) -> None:
     _check_stage_inputs(data_dir, ["xct.npy"], prior_stage="data")
 
     xct = np.load(data_dir / "xct.npy")
+    img_size = xct.shape[0]
     seg_dir = config.output_path / "segment"
     seg_dir.mkdir(parents=True, exist_ok=True)
     (seg_dir / "threshold.txt").write_text(str(threshold))
 
     for phase in tqdm(config.phases, desc="  phases", unit="phase"):
         pcaed = np.load(feat_dir / f"{phase}_pca.npy")
-        pca_map = pcaed[:, 0].reshape(config.img_size, config.img_size)
+        pca_map = pcaed[:, 0].reshape(img_size, img_size)
         mask = (pca_map > threshold).astype(np.uint8)
         np.save(seg_dir / f"{phase}_mask.npy", mask)
 
