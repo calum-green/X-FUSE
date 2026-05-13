@@ -84,7 +84,8 @@ def run_features(config: XFuseConfig) -> None:
     fwd_flip, inv_flip = tr.get_flip_transforms()
     fwd, inv = tr.combine_transforms(fwd_shift, fwd_flip, inv_shift, inv_flip)
 
-    img_tr = tr.get_input_transform(config.img_size, config.img_size)
+    img_size = xct.shape[0]
+    img_tr = tr.get_input_transform(img_size, img_size)
     xct_tensor, _ = load_img(xct, img_tr)
     xct_tensor = xct_tensor.to(torch.float16).to(device)
 
@@ -127,7 +128,7 @@ def run_features(config: XFuseConfig) -> None:
         )
         np.save(feat_dir / f"{phase}_pca.npy", pcaed.astype(np.float32))
 
-        _save_features_figures(feat_dir, phase, feats_np, pcaed, config)
+        _save_features_figures(feat_dir, phase, feats_np, pcaed, img_size, config)
     print(f"  features saved to {feat_dir}/")
 
 
@@ -362,6 +363,7 @@ def _save_features_figures(
     phase: str,
     feats_np: np.ndarray,
     pcaed: np.ndarray,
+    img_size: int,
     config: XFuseConfig,
 ) -> None:
     if config.vis_fused_maps:
@@ -375,7 +377,7 @@ def _save_features_figures(
     if config.vis_pca_components:
         n = config.n_components
         fig, axs = plt.subplots(1, n, figsize=(3 * n, 3))
-        h = w = config.img_size
+        h = w = img_size
         for i in range(n):
             axs[i].imshow(pcaed[:, i].reshape(h, w), cmap="viridis")
             axs[i].set_title(f"PCA {i + 1}")
