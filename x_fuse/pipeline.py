@@ -162,7 +162,6 @@ def run_segment(config: XFuseConfig, threshold: float) -> None:
 
         if config.vis_masks:
             _save_mask_figure(seg_dir, phase, xct, mask, threshold)
-            plt.show()
     print(f"  masks saved to {seg_dir}/")
 
 
@@ -217,7 +216,6 @@ def run_refine(config: XFuseConfig) -> None:
 
         if config.vis_sam2:
             _save_sam2_figure(refine_dir, phase, xct, refined, float(scores[0]))
-            plt.show()
 
     config.to_yaml(str(refine_dir / "config.yaml"))
     print(f"  refined masks saved to {refine_dir}/")
@@ -346,6 +344,7 @@ def _save_data_overview(out_dir: Path, xct: np.ndarray, xrd_dict: dict) -> None:
         axs[i + 1].axis("off")
     plt.tight_layout()
     fig.savefig(out_dir / "data_overview.png", dpi=150, bbox_inches="tight")
+    plt.show()
     plt.close(fig)
 
 
@@ -373,6 +372,7 @@ def _save_features_figures(
         ax.set_title(f"Fused features ch0 — {phase}")
         ax.axis("off")
         fig.savefig(feat_dir / f"{phase}_fused.png", dpi=150, bbox_inches="tight")
+        plt.show()
         plt.close(fig)
 
     if config.vis_pca_components:
@@ -386,6 +386,7 @@ def _save_features_figures(
         plt.suptitle(f"PCA components — {phase}")
         plt.tight_layout()
         fig.savefig(feat_dir / f"{phase}_pca_grid.png", dpi=150, bbox_inches="tight")
+        plt.show()
         plt.close(fig)
 
 
@@ -401,6 +402,7 @@ def _save_mask_figure(
     axs[1].axis("off")
     plt.tight_layout()
     fig.savefig(seg_dir / f"{phase}_mask.png", dpi=150, bbox_inches="tight")
+    plt.show()
     plt.close(fig)
 
 
@@ -420,4 +422,5 @@ def _save_sam2_figure(
     axs[1].axis("off")
     plt.tight_layout()
     fig.savefig(refine_dir / f"{phase}_sam2_overlay.png", dpi=150, bbox_inches="tight")
+    plt.show()
     plt.close(fig)

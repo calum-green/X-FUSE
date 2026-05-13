@@ -443,3 +443,23 @@ def test_run_refine_missing_segment_raises(tmp_path):
     )
     with pytest.raises(FileNotFoundError, match="segment"):
         run_refine(cfg)
+
+
+@patch("x_fuse.pipeline.load_diad_xrdct")
+@patch("x_fuse.pipeline.load_diad_xct_zn13x")
+def test_run_data_vis_saves_overview_image(mock_xct, mock_xrd, tmp_path):
+    mock_xct.return_value = np.random.rand(3, 32, 32).astype(np.float32)
+    mock_xrd.return_value = {"Na": np.random.rand(3, 8, 8).astype(np.float32)}
+    (tmp_path / "xct.h5").touch()
+    (tmp_path / "phases").mkdir()
+    cfg = XFuseConfig(
+        name="vistest",
+        output_dir=str(tmp_path),
+        dataset_type="diad",
+        xct_path=str(tmp_path / "xct.h5"),
+        phase_folder=str(tmp_path / "phases"),
+        phases=["Na"],
+        vis_data=True,
+    )
+    run_data(cfg)
+    assert (tmp_path / "vistest" / "data" / "data_overview.png").exists()
