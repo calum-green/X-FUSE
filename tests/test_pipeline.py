@@ -184,7 +184,7 @@ def _make_diad_config(tmp_path, name="test") -> XFuseConfig:
 @patch("x_fuse.pipeline.load_diad_xrdct")
 @patch("x_fuse.pipeline.load_diad_xct_zn13x")
 def test_run_data_saves_expected_files(mock_xct, mock_xrd, tmp_path):
-    mock_xct.return_value = np.random.rand(56, 56, 5).astype(np.float32)
+    mock_xct.return_value = np.random.rand(3, 32, 32).astype(np.float32)
     mock_xrd.return_value = {
         "Na": np.random.rand(5, 8, 8).astype(np.float32),
         "Zn": np.random.rand(5, 8, 8).astype(np.float32),
@@ -201,7 +201,7 @@ def test_run_data_saves_expected_files(mock_xct, mock_xrd, tmp_path):
 @patch("x_fuse.pipeline.load_diad_xrdct")
 @patch("x_fuse.pipeline.load_diad_xct_zn13x")
 def test_run_data_custom_phases(mock_xct, mock_xrd, tmp_path):
-    mock_xct.return_value = np.random.rand(56, 56, 3).astype(np.float32)
+    mock_xct.return_value = np.random.rand(3, 32, 32).astype(np.float32)
     mock_xrd.return_value = {
         "alpha": np.random.rand(3, 8, 8).astype(np.float32),
     }
@@ -235,7 +235,7 @@ def test_run_data_missing_xct_path_raises(tmp_path):
 @patch("x_fuse.pipeline.load_diad_xrdct")
 @patch("x_fuse.pipeline.load_diad_xct_zn13x")
 def test_run_data_invert_flag(mock_xct, mock_xrd, tmp_path):
-    xct_arr = np.ones((56, 56, 3), dtype=np.float32) * 0.3
+    xct_arr = np.ones((3, 32, 32), dtype=np.float32) * 0.3
     mock_xct.return_value = xct_arr
     mock_xrd.return_value = {"Na": np.ones((3, 8, 8), dtype=np.float32) * 0.4}
     cfg = XFuseConfig(

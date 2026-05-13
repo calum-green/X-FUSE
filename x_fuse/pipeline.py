@@ -28,36 +28,31 @@ def run_data(config: XFuseConfig) -> None:
     _set_cache_env(config)
     print("  validating paths...")
     _validate_paths(config)
-
-    print(f"  loading {config.dataset_type} data...")
     xct_raw, xrd_raw = _load_raw_data(config)
-    print(f"  extracting sample (idx={config.sample_idx})...")
+    print(
+        f"  extracting sample (XCT idx={config.xct_sample_idx},"
+        f" XRDCT idx={config.xrdct_sample_idx})..."
+    )
     xct_sample, xrd_sample = _extract_sample(xct_raw, xrd_raw, config)
-
     if config.invert:
         print("  inverting images...")
         xct_sample = invert_image(xct_sample)
         xrd_sample = {p: invert_image(a) for p, a in xrd_sample.items()}
-
     _validate_arrays(xct_sample, xrd_sample)
-
+    img_size = _snap_to_multiple_of_16(xct_sample.shape[0])
+    print(f"  effective img_size: {img_size}")
     print("  transforming XCT image...")
-    img_tr = tr.get_input_transform(config.img_size, config.img_size)
+    img_tr = tr.get_input_transform(img_size, img_size)
     xct_transformed = _apply_xct_transform(xct_sample, img_tr)
-
     out_dir = config.output_path / "data"
     out_dir.mkdir(parents=True, exist_ok=True)
     print(f"  saving to {out_dir}/")
-
     np.save(out_dir / "xct.npy", xct_transformed.astype(np.float32))
     for phase, arr in xrd_sample.items():
         np.save(out_dir / f"{phase}_xrd.npy", arr.astype(np.float32))
-
-    _write_data_summary(out_dir, xct_transformed, xrd_sample, config)
-
+    _write_data_summary(out_dir, xct_transformed, xrd_sample, config, img_size)
     if config.vis_data:
         _save_data_overview(out_dir, xct_transformed, xrd_sample)
-        plt.show()
     print("  done.")
 
 
@@ -314,12 +309,14 @@ def _apply_xct_transform(xct: np.ndarray, transform) -> np.ndarray:
 
 
 def _write_data_summary(
-    out_dir: Path, xct: np.ndarray, xrd_dict: dict, config: XFuseConfig
+    out_dir: Path, xct: np.ndarray, xrd_dict: dict, config: XFuseConfig, img_size: int
 ) -> None:
     lines = [
         f"dataset_type: {config.dataset_type}",
         f"phases: {config.phases}",
-        f"sample_idx: {config.sample_idx}",
+        f"xct_sample_idx: {config.xct_sample_idx}",
+        f"xrdct_sample_idx: {config.xrdct_sample_idx}",
+        f"img_size (effective): {img_size}",
         f"xct shape: {xct.shape}, min: {xct.min():.4f}, max: {xct.max():.4f}",
     ]
     for phase, arr in xrd_dict.items():
