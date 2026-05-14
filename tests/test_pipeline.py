@@ -463,3 +463,129 @@ def test_run_data_vis_saves_overview_image(mock_xct, mock_xrd, tmp_path):
     )
     run_data(cfg)
     assert (tmp_path / "vistest" / "data" / "data_overview.png").exists()
+
+
+# ---------------------------------------------------------------------------
+# load_raw_data and run_data_from_raw tests
+# ---------------------------------------------------------------------------
+
+from x_fuse.pipeline import load_raw_data, run_data_from_raw  # noqa: E402
+
+
+@patch("x_fuse.pipeline.load_diad_xrdct")
+@patch("x_fuse.pipeline.load_diad_xct_zn13x")
+def test_load_raw_data_returns_correct_types_and_shapes(mock_xct, mock_xrd, tmp_path):
+    """Verify load_raw_data returns (xct_raw, xrd_raw) with correct structure."""
+    # Setup mocks
+    xct_data = np.random.rand(5, 32, 32).astype(np.float32)
+    xrd_data = {
+        "Na": np.random.rand(3, 8, 8).astype(np.float32),
+        "Zn": np.random.rand(3, 8, 8).astype(np.float32),
+    }
+    mock_xct.return_value = xct_data
+    mock_xrd.return_value = xrd_data
+
+    # Create stub files
+    (tmp_path / "xct.h5").touch()
+    (tmp_path / "phases").mkdir(exist_ok=True)
+
+    config = XFuseConfig(
+        name="load_test",
+        dataset_type="diad",
+        xct_path=str(tmp_path / "xct.h5"),
+        phase_folder=str(tmp_path / "phases"),
+        phases=["Na", "Zn"],
+        vis_data=False,
+    )
+
+    xct_raw, xrd_raw = load_raw_data(config)
+
+    # Type checks
+    assert isinstance(
+        xct_raw, np.ndarray
+    ), f"xct_raw should be ndarray, got {type(xct_raw)}"
+    assert isinstance(xrd_raw, dict), f"xrd_raw should be dict, got {type(xrd_raw)}"
+
+    # Shape checks — XCT should be 3D
+    assert (
+        xct_raw.ndim == 3
+    ), f"xct_raw should be 3D, got {xct_raw.ndim}D with shape {xct_raw.shape}"
+
+    # XRDCT phases should match config
+    assert set(xrd_raw.keys()) == set(config.phases), (
+        f"xrd_raw phases {set(xrd_raw.keys())} "
+        f"don't match config phases {set(config.phases)}"
+    )
+
+    # Each XRDCT phase should be 3D
+    for phase, arr in xrd_raw.items():
+        assert isinstance(arr, np.ndarray), f"xrd_raw[{phase}] should be ndarray"
+        assert (
+            arr.ndim == 3
+        ), f"xrd_raw[{phase}] should be 3D, got {arr.ndim}D with shape {arr.shape}"
+
+
+@patch("x_fuse.pipeline.load_diad_xrdct")
+@patch("x_fuse.pipeline.load_diad_xct_zn13x")
+def test_run_data_from_raw_produces_same_outputs_as_run_data(
+    mock_xct, mock_xrd, tmp_path
+):
+    """Verify run_data_from_raw() produces identical outputs to run_data()."""
+    # Setup mocks with same data
+    xct_data = np.random.rand(3, 32, 32).astype(np.float32)
+    xrd_data = {
+        "Na": np.random.rand(5, 8, 8).astype(np.float32),
+        "Zn": np.random.rand(5, 8, 8).astype(np.float32),
+    }
+
+    # Load raw data once
+    mock_xct.return_value = xct_data
+    mock_xrd.return_value = xrd_data
+
+    (tmp_path / "xct.h5").touch()
+    (tmp_path / "phases").mkdir(exist_ok=True)
+
+    config_base = XFuseConfig(
+        name="test",
+        dataset_type="diad",
+        xct_path=str(tmp_path / "xct.h5"),
+        phase_folder=str(tmp_path / "phases"),
+        phases=["Na", "Zn"],
+        vis_data=False,
+    )
+
+    # Run via refactored path (load_raw_data + run_data_from_raw)
+    mock_xct.return_value = xct_data.copy()
+    mock_xrd.return_value = {k: v.copy() for k, v in xrd_data.items()}
+    xct_raw, xrd_raw = load_raw_data(config_base)
+
+    config1 = config_base.replace(output_dir=str(tmp_path / "out1"))
+    run_data_from_raw(xct_raw, xrd_raw, config1)
+
+    # Run via direct path (full run_data) — setup mocks again
+    mock_xct.return_value = xct_data.copy()
+    mock_xrd.return_value = {k: v.copy() for k, v in xrd_data.items()}
+
+    config2 = config_base.replace(output_dir=str(tmp_path / "out2"))
+    run_data(config2)
+
+    # Compare outputs: xct.npy should be identical
+    out1_xct = np.load(tmp_path / "out1" / "test" / "data" / "xct.npy")
+    out2_xct = np.load(tmp_path / "out2" / "test" / "data" / "xct.npy")
+
+    np.testing.assert_array_equal(
+        out1_xct,
+        out2_xct,
+        err_msg="xct.npy outputs differ between run_data_from_raw and run_data",
+    )
+
+    # Compare XRDCT outputs
+    for phase in config_base.phases:
+        fname = f"{phase}_xrd.npy"
+        arr1 = np.load(tmp_path / "out1" / "test" / "data" / fname)
+        arr2 = np.load(tmp_path / "out2" / "test" / "data" / fname)
+        np.testing.assert_array_equal(
+            arr1,
+            arr2,
+            err_msg=f"{fname} outputs differ between run_data_from_raw and run_data",
+        )

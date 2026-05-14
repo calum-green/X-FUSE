@@ -22,9 +22,75 @@ from .utils import invert_image, load_img, overlay_mask, xrd_to_tensor, get_ps_i
 # ---------------------------------------------------------------------------
 
 
+def load_raw_data(config: XFuseConfig) -> tuple[np.ndarray, dict[str, np.ndarray]]:
+    """Load full XCT and XRDCT volumes from disk (no slice extraction).
+
+    This is the slow step (~10 min for large files). Load once, then use
+    run_data_from_raw() multiple times with different slice indices.
+
+    Args:
+        config: XFuseConfig with paths and dataset settings
+
+    Returns:
+        Tuple of (xct_raw, xrd_raw) where:
+        - xct_raw: 3D numpy array, shape determined by loader (typically N_slices, H, W)
+        - xrd_raw: dict mapping phase names to 3D arrays of same structure
+    """
+    print(f"\n[X-FUSE] Loading raw data  ({config.name})")
+    _set_cache_env(config)
+    print("  validating paths...")
+    _validate_paths(config)
+    print("  loading full volumes...")
+    xct_raw, xrd_raw = _load_raw_data(config)
+    xrd_shapes = ", ".join(f"{p}: {arr.shape}" for p, arr in xrd_raw.items())
+    print(f"  XCT shape: {xct_raw.shape}, XRDCT shapes: {{{xrd_shapes}}}")
+    print("  done.")
+    return xct_raw, xrd_raw
+
+
+def run_data_from_raw(
+    xct_raw: np.ndarray, xrd_raw: dict[str, np.ndarray], config: XFuseConfig
+) -> None:
+    """Process pre-loaded raw XCT/XRDCT volumes: extract slice, transform, save.
+
+    This is the fast step (<1 min). Call after load_raw_data() with different
+    slice indices via config.xct_sample_idx and config.xrdct_sample_idx.
+
+    Args:
+        xct_raw: Full 3D XCT volume (from load_raw_data)
+        xrd_raw: Dict of full 3D XRDCT volumes (from load_raw_data)
+        config: XFuseConfig with slice indices and output settings
+    """
+    print(f"\n[X-FUSE] Stage 0 - data  ({config.name})")
+    print(
+        f"  extracting sample (XCT idx={config.xct_sample_idx},"
+        f" XRDCT idx={config.xrdct_sample_idx})..."
+    )
+    xct_sample, xrd_sample = _extract_sample(xct_raw, xrd_raw, config)
+    if config.invert:
+        print("  inverting images...")
+        xct_sample = invert_image(xct_sample)
+        xrd_sample = {p: invert_image(a) for p, a in xrd_sample.items()}
+    _validate_arrays(xct_sample, xrd_sample)
+    img_size = _snap_to_multiple_of_16(xct_sample.shape[0])
+    print(f"  effective img_size: {img_size}")
+    print("  transforming XCT image...")
+    img_tr = tr.get_input_transform(img_size, img_size)
+    xct_transformed = _apply_xct_transform(xct_sample, img_tr)
+    out_dir = config.output_path / "data"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    print(f"  saving to {out_dir}/")
+    np.save(out_dir / "xct.npy", xct_transformed.astype(np.float32))
+    for phase, arr in xrd_sample.items():
+        np.save(out_dir / f"{phase}_xrd.npy", arr.astype(np.float32))
+    _write_data_summary(out_dir, xct_transformed, xrd_sample, config, img_size)
+    if config.vis_data:
+        _save_data_overview(out_dir, xct_transformed, xrd_sample)
+    print("  done.")
+
+
 def run_data(config: XFuseConfig) -> None:
     """Validate, load, format, and save input data. CPU-only."""
-    print(f"\n[X-FUSE] Stage 0 - data  ({config.name})")
     _set_cache_env(config)
     print("  validating paths...")
     _validate_paths(config)
