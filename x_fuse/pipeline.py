@@ -90,36 +90,16 @@ def run_data_from_raw(
 
 
 def run_data(config: XFuseConfig) -> None:
-    """Validate, load, format, and save input data. CPU-only."""
-    _set_cache_env(config)
-    print("  validating paths...")
-    _validate_paths(config)
-    xct_raw, xrd_raw = _load_raw_data(config)
-    print(
-        f"  extracting sample (XCT idx={config.xct_sample_idx},"
-        f" XRDCT idx={config.xrdct_sample_idx})..."
-    )
-    xct_sample, xrd_sample = _extract_sample(xct_raw, xrd_raw, config)
-    if config.invert:
-        print("  inverting images...")
-        xct_sample = invert_image(xct_sample)
-        xrd_sample = {p: invert_image(a) for p, a in xrd_sample.items()}
-    _validate_arrays(xct_sample, xrd_sample)
-    img_size = _snap_to_multiple_of_16(xct_sample.shape[0])
-    print(f"  effective img_size: {img_size}")
-    print("  transforming XCT image...")
-    img_tr = tr.get_input_transform(img_size, img_size)
-    xct_transformed = _apply_xct_transform(xct_sample, img_tr)
-    out_dir = config.output_path / "data"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    print(f"  saving to {out_dir}/")
-    np.save(out_dir / "xct.npy", xct_transformed.astype(np.float32))
-    for phase, arr in xrd_sample.items():
-        np.save(out_dir / f"{phase}_xrd.npy", arr.astype(np.float32))
-    _write_data_summary(out_dir, xct_transformed, xrd_sample, config, img_size)
-    if config.vis_data:
-        _save_data_overview(out_dir, xct_transformed, xrd_sample)
-    print("  done.")
+    """Validate, load, format, and save input data. CPU-only.
+
+    High-level wrapper that combines load_raw_data() and run_data_from_raw().
+    Use this when you don't need to iterate over multiple slices.
+
+    For repeated iteration with different slice indices, call load_raw_data()
+    once, then run_data_from_raw() multiple times.
+    """
+    xct_raw, xrd_raw = load_raw_data(config)
+    run_data_from_raw(xct_raw, xrd_raw, config)
 
 
 # ---------------------------------------------------------------------------
