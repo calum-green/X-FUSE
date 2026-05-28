@@ -201,11 +201,16 @@ def xrd_to_tensor(xrd_img, device):
     """
     Convert the XRD image to a tensor on DEVICE, min-max normalised to [0, 1].
     """
-    t = transforms.ToTensor()(Image.fromarray(xrd_img).convert("L"))  # (1, H, W)
-    mn, mx = t.min(), t.max()
-    t = (t - mn) / (mx - mn)
+    import torch
 
-    return t.unsqueeze(0).to(device)  # (1, 1, H, W)
+    # Direct numpy → tensor preserves continuous float values (e.g. from Lanczos
+    # downsampling). The former PIL "F"→"L" path truncated via int(), so every
+    # value < 1.0 became 0, destroying boundary-block occupancy fractions.
+    t = torch.from_numpy(np.clip(xrd_img, 0.0, None).astype(np.float32))  # (H, W)
+    mn, mx = t.min(), t.max()
+    if mx > mn:
+        t = (t - mn) / (mx - mn)
+    return t.unsqueeze(0).unsqueeze(0).to(device)  # (1, 1, H, W)
 
 
 def get_alibi_model(
