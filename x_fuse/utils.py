@@ -267,7 +267,7 @@ def _inject_alibi_dv3(
     m_init = get_alibi_slope(num_heads, slope_type=slope_type, device=device)
     is_learned = isinstance(m_init, nn.Parameter)
 
-    def _compute_attn(self, qkv, attn_bias=None, rope=None, _chunk=512):
+    def _compute_attn(self, qkv, attn_bias=None, rope=None):
         B, N, _ = qkv.shape
         C = self.qkv.in_features
         head_dim = C // self.num_heads
@@ -277,12 +277,13 @@ def _inject_alibi_dv3(
         # q, k, v: (B, H, N, head_dim)
         # Materialising the full (1, H, N, N) ALiBi bias OOMs for large N
         # (32 heads × 13230² × fp16 ≈ 11 GB). Process Q in chunks so the
-        # per-chunk bias is at most (1, H, _chunk, N) ≈ 433 MB at _chunk=512.
+        # per-chunk bias stays ≤ 512 MB regardless of stride/resolution.
         m = self.m.to(device=q.device, dtype=q.dtype)  # (H, 1, 1)
         D = distance_matrix.matrix  # (N_full, N_full); may live on CPU
+        chunk = max(1, int(512 * 1024 * 1024 / (self.num_heads * N * q.element_size())))
         out = torch.empty_like(q)
-        for s in range(0, N, _chunk):
-            e = min(s + _chunk, N)
+        for s in range(0, N, chunk):
+            e = min(s + chunk, N)
             D_rows = D[s:e].to(device=q.device, dtype=q.dtype)  # (chunk, N)
             bias_chunk = (m * D_rows).unsqueeze(0)  # (1, H, chunk, N)
             out[:, :, s:e] = F.scaled_dot_product_attention(
