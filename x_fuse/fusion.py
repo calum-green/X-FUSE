@@ -585,7 +585,7 @@ class XFuse(HighResDV2):
             inverted: torch.Tensor = inv_transform(full_size)
             out_feature_img[:, active_idx] += inverted.cpu()
 
-        return (out_feature_img / N_transforms).to(x.device)
+        return out_feature_img / N_transforms  # on CPU to save memory
 
     def train_fusion_step(self, x: torch.Tensor) -> float:
         """Update LearnedChannelGating weights for one step.
