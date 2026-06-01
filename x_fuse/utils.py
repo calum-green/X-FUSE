@@ -376,6 +376,8 @@ def get_dv3_model(
             return {"x_norm_patchtokens": feats, "masks": masks}
 
     wrapper = _DV3Wrapper(dv3, distance_matrix, stride, n_reg=n_reg_tokens)
+    if weights is not None and not next(iter(weights)).startswith("model."):
+        weights = {"model." + k: v for k, v in weights.items()}
     result = wrapper.load_state_dict(weights, strict=False)
     unexpected = result.unexpected_keys
     missing = [k for k in result.missing_keys if "rope" not in k]
