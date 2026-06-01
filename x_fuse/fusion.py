@@ -367,7 +367,7 @@ class XFuse(HighResDV2):
                 # Load to CPU so the fp32→fp16 conversion (lines below) happens
                 # before the device move — avoids OOM on 32 GB GPUs with 7B models.
                 self.dinov2 = get_dv3_model(
-                    dino_name, model_path, lib_path, device=None, stride=stride
+                    dino_name, model_path, lib_path, device="cpu", stride=stride
                 )
             else:
                 self.dinov2 = get_alibi_model(
