@@ -119,8 +119,8 @@ class HighResDV2(nn.Module):
         split_name = dino_name.split("_")
         model = split_name[1]
         arch, patch_size = model[3], int(model[4:])
-        feat_dim_lookup = {"s": 384, "b": 768, "l": 1024, "g": 1536}
-        n_heads_lookup = {"s": 6, "b": 12, "l": 16, "g": 16}
+        feat_dim_lookup = {"s": 384, "b": 768, "l": 1024, "g": 1536, "7b": 4096}
+        n_heads_lookup = {"s": 6, "b": 12, "l": 16, "g": 16, "7b": 32}
         feat_dim: int = feat_dim_lookup[arch]
         n_heads: int = n_heads_lookup[arch]
         return feat_dim, patch_size, n_heads
