@@ -18,7 +18,9 @@ Interpolation: TypeAlias = Literal[
     "nearest", "linear", "bilinear", "bicubic", "trilinear", "area", "nearest-exact"
 ]
 AttentionOptions: TypeAlias = Literal["q", "k", "v", "o", "none"]
-FusionOptions: TypeAlias = Literal["gating", "learned_gating", "attention", "vanilla"]
+FusionOptions: TypeAlias = Literal[
+    "gating", "learned_gating", "attention", "vanilla", "weighted_pca"
+]
 
 
 class XRDCrossAttention(nn.Module):
@@ -620,7 +622,8 @@ class XFuse(HighResDV2):
 
         # Accumulator lives on CPU: avoids a (1, C, img_h, img_w) allocation on GPU
         # (e.g. ~28 GB for vit7b at 1840 px). Moved back to device before return.
-        out_feature_img = torch.zeros(1, c, img_h, img_w, dtype=self.dtype)
+        c_out = 1 if self.xrd_fuse_method == "weighted_pca" else c
+        out_feature_img = torch.zeros(1, c_out, img_h, img_w, dtype=self.dtype)
 
         N_transforms = len(self.transforms)
         for i in range(N_transforms):
