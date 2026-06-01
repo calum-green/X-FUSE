@@ -501,7 +501,7 @@ class XFuse(HighResDV2):
 
     def get_model_params(self, dino_name: str) -> Tuple[int, int, int]:
         for segment in dino_name.split("_"):
-            m = re.match(r"^vit([sblg])(\d+)", segment)
+            m = re.match(r"^vit(7b|[sblg])(\d+)", segment)
             if m:
                 arch, patch_size = m.group(1), int(m.group(2))
                 feat_dim_lookup = {"s": 384, "b": 768, "l": 1024, "g": 1536, "7b": 4096}
