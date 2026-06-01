@@ -18,7 +18,7 @@ Interpolation: TypeAlias = Literal[
     "nearest", "linear", "bilinear", "bicubic", "trilinear", "area", "nearest-exact"
 ]
 AttentionOptions: TypeAlias = Literal["q", "k", "v", "o", "none"]
-FusionOptions: TypeAlias = Literal["gating", "learned_gating", "attention"]
+FusionOptions: TypeAlias = Literal["gating", "learned_gating", "attention", "vanilla"]
 
 
 class XRDCrossAttention(nn.Module):
@@ -180,6 +180,9 @@ class XRDFusionMethod(nn.Module):
         top_k: int | None = None,
     ):
         # return transformed XRD features ready to be fused with the DINO features
+        if xrd_fusion_method == "vanilla":
+            return x
+
         tr_xrd = self.get_tr()[idx]
 
         if xrd_fusion_method == "gating":
