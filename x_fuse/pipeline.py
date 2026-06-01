@@ -16,7 +16,6 @@ from .config import XFuseConfig
 from .loaders import load_diad_xct_zn13x, load_diad_xrdct, load_xrdct_phase
 from .utils import invert_image, load_img, overlay_mask, xrd_to_tensor, get_ps_images
 
-
 # ---------------------------------------------------------------------------
 # Stage 0
 # ---------------------------------------------------------------------------
@@ -183,7 +182,9 @@ def run_features(config: XFuseConfig) -> None:
 # ---------------------------------------------------------------------------
 
 
-def run_segment(config: XFuseConfig, threshold: float) -> None:
+def run_segment(
+    config: XFuseConfig, threshold: float | list[float], plot_hist: bool
+) -> None:
     """Apply threshold to PCA component 0. CPU-only."""
     print(f"\n[X-FUSE] Stage 2 - segment  ({config.name})")
     print(f"  threshold: {threshold}")
@@ -200,14 +201,42 @@ def run_segment(config: XFuseConfig, threshold: float) -> None:
     seg_dir.mkdir(parents=True, exist_ok=True)
     (seg_dir / "threshold.txt").write_text(str(threshold))
 
+    if isinstance(threshold, list):
+        if len(threshold) != len(config.phases):
+            raise ValueError(
+                f"threshold list length {len(threshold)}"
+                f" != phases length {len(config.phases)}"
+            )
+        print("Threshold Values for each phase provided.")
+        threshold = dict(zip(config.phases, threshold))
+    else:
+        print("Single threshold value provided for all phases.")
+
     for phase in tqdm(config.phases, desc="  phases", unit="phase"):
         pcaed = np.load(feat_dir / f"{phase}_pca.npy")
         pca_map = pcaed[:, 0].reshape(img_size, img_size)
-        mask = (pca_map > threshold).astype(np.uint8)
+        threshold_val = threshold[phase] if isinstance(threshold, dict) else threshold
+        mask = (pca_map > threshold_val).astype(np.uint8)
         np.save(seg_dir / f"{phase}_mask.npy", mask)
 
         if config.vis_masks:
-            _save_mask_figure(seg_dir, phase, xct, mask, threshold)
+            _save_mask_figure(seg_dir, phase, xct, mask, threshold_val)
+
+        if plot_hist:
+            # Plot histogram of 1st PCA Component with VLine at threshold
+            plt.figure(figsize=(6, 4))
+            plt.hist(pca_map.flatten(), bins=100, color="blue", alpha=0.7)
+            plt.axvline(threshold_val, color="red", linestyle="--")
+            plt.title(f"{phase} PCA Component 1 Histogram")
+            plt.xlabel("PCA Component 1 Value")
+            plt.ylabel("Frequency")
+            plt.tight_layout()
+            plt.savefig(
+                seg_dir / f"{phase}_pca_histogram.png", dpi=150, bbox_inches="tight"
+            )
+            plt.show()
+            plt.close()
+
     print(f"  masks saved to {seg_dir}/")
 
 
