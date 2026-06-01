@@ -267,18 +267,28 @@ def _inject_alibi_dv3(
     m_init = get_alibi_slope(num_heads, slope_type=slope_type, device=device)
     is_learned = isinstance(m_init, nn.Parameter)
 
-    def _compute_attn(self, qkv, attn_bias=None, rope=None):
+    def _compute_attn(self, qkv, attn_bias=None, rope=None, _chunk=512):
         B, N, _ = qkv.shape
         C = self.qkv.in_features
-        qkv_r = qkv.reshape(B, N, 3, self.num_heads, C // self.num_heads)
+        head_dim = C // self.num_heads
+        qkv_r = qkv.reshape(B, N, 3, self.num_heads, head_dim)
         q, k, v = qkv_r.unbind(2)
         q, k, v = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
-        bias = (
-            self.m.to(device=q.device, dtype=q.dtype)
-            * distance_matrix.matrix.to(device=q.device, dtype=q.dtype)
-        ).unsqueeze(0)
-        x = F.scaled_dot_product_attention(q, k, v, attn_mask=bias)
-        return x.transpose(1, 2).reshape(B, N, C)
+        # q, k, v: (B, H, N, head_dim)
+        # Materialising the full (1, H, N, N) ALiBi bias OOMs for large N
+        # (32 heads × 13230² × fp16 ≈ 11 GB). Process Q in chunks so the
+        # per-chunk bias is at most (1, H, _chunk, N) ≈ 433 MB at _chunk=512.
+        m = self.m.to(device=q.device, dtype=q.dtype)  # (H, 1, 1)
+        D = distance_matrix.matrix  # (N_full, N_full); may live on CPU
+        out = torch.empty_like(q)
+        for s in range(0, N, _chunk):
+            e = min(s + _chunk, N)
+            D_rows = D[s:e].to(device=q.device, dtype=q.dtype)  # (chunk, N)
+            bias_chunk = (m * D_rows).unsqueeze(0)  # (1, H, chunk, N)
+            out[:, :, s:e] = F.scaled_dot_product_attention(
+                q[:, :, s:e], k, v, attn_mask=bias_chunk
+            )
+        return out.transpose(1, 2).reshape(B, N, C)
 
     for block in dv3_model.blocks:
         if is_learned:
