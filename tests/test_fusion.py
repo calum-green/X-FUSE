@@ -272,3 +272,19 @@ def test_weighted_pca_sign_positive_in_high_xrd_region(
     w = w / (w.sum() + 1e-8)
     # sign correction guarantees weighted sum of scores is non-negative
     assert (scores * w).sum().item() >= 0
+
+
+# ── XRDFusionMethod.forward_xrd dispatch ──────────────────────────────────────
+
+
+def test_forward_xrd_weighted_pca_shape(dino_flavour, features, xrd_map_4d):
+    fusion = _make_fusion(xrd_map_4d)
+    result = fusion.forward_xrd(features, idx=0, xrd_fusion_method="weighted_pca")
+    _, _, H, W = features.shape
+    assert result.shape == (1, 1, H, W)
+
+
+def test_forward_xrd_weighted_pca_dtype(dino_flavour, features, xrd_map_4d):
+    fusion = _make_fusion(xrd_map_4d)
+    result = fusion.forward_xrd(features, idx=0, xrd_fusion_method="weighted_pca")
+    assert result.dtype == features.dtype

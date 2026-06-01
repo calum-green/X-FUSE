@@ -183,6 +183,10 @@ class XRDFusionMethod(nn.Module):
         if xrd_fusion_method == "vanilla":
             return x
 
+        if xrd_fusion_method == "weighted_pca":
+            tr_xrd = self.get_tr()[idx]
+            return self._weighted_pca(x, tr_xrd)
+
         tr_xrd = self.get_tr()[idx]
 
         if xrd_fusion_method == "gating":
