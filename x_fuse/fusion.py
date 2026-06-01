@@ -374,6 +374,13 @@ class XFuse(HighResDV2):
                     dino_name, model_path, device=device, stride=stride
                 )
 
+        elif "vanilla_dv3" in dino_name:
+            lib_path = kwargs["lib_path"]
+            chk_path = kwargs["chk_path"]
+            self.dinov2 = get_dv3_model(
+                dino_name, chk_path, lib_path, device="cpu", stride=stride
+            )
+
         elif "dinov2" in dino_name:
             hub_path = "facebookresearch/dinov2"
             self.dinov2 = torch.hub.load(hub_path, dino_name)
