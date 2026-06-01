@@ -497,7 +497,11 @@ class XFuse(HighResDV2):
             super().set_model_stride(dino_model, stride_l, verbose)
 
     def patch_last_block(self, dino_model: nn.Module, dino_name: str) -> None:
-        if "alibi" not in dino_name and "nope" not in dino_name:
+        if (
+            "alibi" not in dino_name
+            and "nope" not in dino_name
+            and "dv3" not in dino_name
+        ):
             super().patch_last_block(dino_model, dino_name)
             return
 
