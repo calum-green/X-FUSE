@@ -570,7 +570,9 @@ class XFuse(HighResDV2):
 
             # Compact to active channels on GPU before upsampling, then
             # scatter-accumulate into the CPU accumulator by index.
-            active_idx = fused_img.abs().sum(dim=(0, 2, 3)).nonzero(as_tuple=True)[0]
+            active_idx = (
+                fused_img.abs().sum(dim=(0, 2, 3)).nonzero(as_tuple=True)[0].cpu()
+            )
             if active_idx.numel() == 0:
                 continue
 
