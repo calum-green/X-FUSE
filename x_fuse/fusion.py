@@ -330,6 +330,61 @@ class XRDFusionMethod(nn.Module):
 
         return self.spatial_attention_module(features, xrd_map)
 
+    def _weighted_pca(self, x: torch.Tensor, xrd_map: torch.Tensor) -> torch.Tensor:
+        """XRD-weighted PCA fusion.
+
+        Finds the direction in channel space maximally common in high-XRD patches
+        by computing the first eigenvector of the XRD-weighted feature covariance,
+        then projects all patches onto that direction.
+
+        Args:
+            x: (1, C, H_patch, W_patch) DINO features at patch level
+            xrd_map: (1, 1, H_xrd, W_xrd) pre-transformed XRD map
+
+        Returns:
+            (1, 1, H_patch, W_patch) continuous per-patch phase score;
+            high score = high XRD intensity.
+        """
+        _, C, H, W = x.shape
+        N = H * W
+
+        # Interpolate XRD to patch grid (same as gating — never upsampled to XCT res)
+        xrd_patch = F.interpolate(
+            xrd_map.float(),
+            size=(H, W),
+            mode="bilinear",
+            align_corners=False,
+        ).reshape(
+            N
+        )  # (N,)
+
+        # Normalise weights to sum=1
+        w = xrd_patch / (xrd_patch.sum() + 1e-8)  # (N,)
+
+        # Flatten features to (N, C), cast to float32 for numerical stability
+        feats = x.float().reshape(C, N).permute(1, 0)  # (N, C)
+
+        # Weighted mean
+        mu = (w[:, None] * feats).sum(0)  # (C,)
+
+        # Centre and apply sqrt weights:
+        # eigenvectors of X_c^T diag(w) X_c = right singular vectors of diag(w)^0.5 X_c
+        centered = feats - mu  # (N, C)
+        wc = w.sqrt()[:, None] * centered  # (N, C)
+
+        # First principal component via low-rank SVD
+        _, _, V = torch.pca_lowrank(wc, q=1, center=False, niter=4)
+        v = V[:, 0]  # (C,)
+
+        # Score all patches
+        scores = feats @ v  # (N,)
+
+        # Sign correction: ensure high score = high XRD intensity
+        if (scores * w).sum() < 0:
+            scores = -scores
+
+        return scores.to(x.dtype).reshape(1, 1, H, W)
+
 
 class XFuse(HighResDV2):
     def __init__(

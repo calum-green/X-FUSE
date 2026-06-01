@@ -219,3 +219,56 @@ def test_dcg_xrd_spatial_mismatch(dino_flavour, features, xrd_map_4d, loss_fn):
     xrd_mismatched = torch.rand(1, 1, 4, 4)
     result = fusion._direct_correlation_gating(features, xrd_mismatched)
     assert result.shape == features.shape
+
+
+# ── XRDFusionMethod._weighted_pca ─────────────────────────────────────────────
+
+
+def _make_fusion(xrd_map_4d):
+    return XRDFusionMethod(
+        xrd_img=xrd_map_4d,
+        transform=[],
+        require_grad=False,
+        learned_gating=None,
+        spatial_attention=None,
+        loss_fn="bce",
+    )
+
+
+def test_weighted_pca_output_shape(dino_flavour, features, xrd_map_4d):
+    fusion = _make_fusion(xrd_map_4d)
+    result = fusion._weighted_pca(features, xrd_map_4d)
+    _, _, H, W = features.shape
+    assert result.shape == (1, 1, H, W)
+
+
+def test_weighted_pca_output_dtype(dino_flavour, features, xrd_map_4d):
+    fusion = _make_fusion(xrd_map_4d)
+    result = fusion._weighted_pca(features, xrd_map_4d)
+    assert result.dtype == features.dtype
+
+
+def test_weighted_pca_output_is_tensor(dino_flavour, features, xrd_map_4d):
+    fusion = _make_fusion(xrd_map_4d)
+    result = fusion._weighted_pca(features, xrd_map_4d)
+    assert isinstance(result, torch.Tensor)
+
+
+def test_weighted_pca_xrd_spatial_mismatch(dino_flavour, features, xrd_map_4d):
+    fusion = _make_fusion(xrd_map_4d)
+    xrd_mismatched = torch.rand(1, 1, 4, 4)
+    _, _, H, W = features.shape
+    result = fusion._weighted_pca(features, xrd_mismatched)
+    assert result.shape == (1, 1, H, W)
+
+
+def test_weighted_pca_sign_positive_in_high_xrd_region(
+    dino_flavour, features, xrd_map_4d
+):
+    fusion = _make_fusion(xrd_map_4d)
+    result = fusion._weighted_pca(features, xrd_map_4d)
+    scores = result.float().reshape(-1)
+    w = xrd_map_4d.float().reshape(-1)
+    w = w / (w.sum() + 1e-8)
+    # sign correction guarantees weighted sum of scores is non-negative
+    assert (scores * w).sum().item() >= 0
