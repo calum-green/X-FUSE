@@ -543,15 +543,9 @@ class XFuse(HighResDV2):
         n_patch_w: int = 1 + (img_w - self.original_patch_size) // stride_l
         n_patch_h: int = 1 + (img_h - self.original_patch_size) // stride_l
 
-        out_feature_img: torch.Tensor = torch.zeros(
-            1,
-            c,
-            img_h,
-            img_w,
-            device=x.device,
-            dtype=self.dtype,
-            requires_grad=self.track_grad,
-        )
+        # Accumulator lives on CPU: avoids a (1, C, img_h, img_w) allocation on GPU
+        # (e.g. ~28 GB for vit7b at 1840 px). Moved back to device before return.
+        out_feature_img = torch.zeros(1, c, img_h, img_w, dtype=self.dtype)
 
         N_transforms = len(self.transforms)
         for i in range(N_transforms):
@@ -572,17 +566,22 @@ class XFuse(HighResDV2):
                 permuted, i, self.xrd_fuse_method, top_k=top_k
             )
 
+            # Compact to active channels on GPU before upsampling, then
+            # scatter-accumulate into the CPU accumulator by index.
+            active_idx = fused_img.abs().sum(dim=(0, 2, 3)).nonzero(as_tuple=True)[0]
+            if active_idx.numel() == 0:
+                continue
+
             full_size = F.interpolate(
-                fused_img,
+                fused_img[:, active_idx],
                 (img_h, img_w),
                 mode=self.interpolation_mode,
             )
             inv_transform = self.inverse_transforms[i]
             inverted: torch.Tensor = inv_transform(full_size)
-            out_feature_img += inverted
+            out_feature_img[:, active_idx] += inverted.cpu()
 
-        mean = out_feature_img / N_transforms
-        return mean
+        return (out_feature_img / N_transforms).to(x.device)
 
     def train_fusion_step(self, x: torch.Tensor) -> float:
         """Update LearnedChannelGating weights for one step.
