@@ -19,7 +19,12 @@ Interpolation: TypeAlias = Literal[
 ]
 AttentionOptions: TypeAlias = Literal["q", "k", "v", "o", "none"]
 FusionOptions: TypeAlias = Literal[
-    "gating", "learned_gating", "attention", "vanilla", "weighted_pca"
+    "gating",
+    "learned_gating",
+    "attention",
+    "vanilla",
+    "weighted_pca",
+    "cosine_similarity",
 ]
 
 
@@ -188,6 +193,10 @@ class XRDFusionMethod(nn.Module):
         if xrd_fusion_method == "weighted_pca":
             tr_xrd = self.get_tr()[idx]
             return self._weighted_pca(x, tr_xrd)
+
+        if xrd_fusion_method == "cosine_similarity":
+            tr_xrd = self.get_tr()[idx]
+            return self._cosine_similarity(x, tr_xrd)
 
         tr_xrd = self.get_tr()[idx]
 
@@ -672,7 +681,9 @@ class XFuse(HighResDV2):
 
         # Accumulator lives on CPU: avoids a (1, C, img_h, img_w) allocation on GPU
         # (e.g. ~28 GB for vit7b at 1840 px). Moved back to device before return.
-        c_out = 1 if self.xrd_fuse_method == "weighted_pca" else c
+        c_out = (
+            1 if self.xrd_fuse_method in ("weighted_pca", "cosine_similarity") else c
+        )
         out_feature_img = torch.zeros(1, c_out, img_h, img_w, dtype=self.dtype)
 
         N_transforms = len(self.transforms)
