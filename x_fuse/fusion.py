@@ -391,6 +391,56 @@ class XRDFusionMethod(nn.Module):
 
         return scores.to(x.dtype).reshape(1, 1, H, W)
 
+    def _cosine_similarity(
+        self, x: torch.Tensor, xrd_map: torch.Tensor
+    ) -> torch.Tensor:
+        """XRD-weighted cosine similarity fusion.
+
+        Computes the XRD-weighted mean direction of Phase A patches in DINO
+        feature space (the prototype), then scores every patch by cosine
+        similarity to that prototype.
+
+        Args:
+            x: (1, C, H_patch, W_patch) DINO features at patch level
+            xrd_map: (1, 1, H_xrd, W_xrd) pre-transformed XRD map
+
+        Returns:
+            (1, 1, H_patch, W_patch) cosine similarity score map in [-1, 1];
+            high score = patch direction similar to Phase A prototype.
+        """
+        _, C, H, W = x.shape
+        N = H * W
+
+        # Interpolate XRD to patch grid
+        xrd_patch = F.interpolate(
+            xrd_map.float(),
+            size=(H, W),
+            mode="bilinear",
+            align_corners=False,
+        ).reshape(
+            N
+        )  # (N,)
+
+        # Normalise XRD weights to sum=1
+        w = xrd_patch / (xrd_patch.sum() + 1e-8)  # (N,)
+
+        # Flatten features → (N, C), cast to float32 for numerical stability
+        feats = x.float().reshape(C, N).permute(1, 0)  # (N, C)
+
+        # L2-normalise each patch row: direction only, magnitude removed
+        feats_norm = F.normalize(feats, p=2, dim=1)  # (N, C)
+
+        # XRD-weighted mean of unit patch vectors → Phase A prototype direction
+        mu_A = (w[:, None] * feats_norm).sum(0)  # (C,)
+
+        # L2-normalise prototype: average Phase A direction as unit vector
+        mu_A_norm = F.normalize(mu_A, p=2, dim=0)  # (C,)
+
+        # Cosine similarity: dot product of each unit patch with unit prototype
+        scores = feats_norm @ mu_A_norm  # (N,) in [-1, 1]
+
+        return scores.to(x.dtype).reshape(1, 1, H, W)
+
 
 class XFuse(HighResDV2):
     def __init__(

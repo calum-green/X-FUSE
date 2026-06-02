@@ -288,3 +288,66 @@ def test_forward_xrd_weighted_pca_dtype(dino_flavour, features, xrd_map_4d):
     fusion = _make_fusion(xrd_map_4d)
     result = fusion.forward_xrd(features, idx=0, xrd_fusion_method="weighted_pca")
     assert result.dtype == features.dtype
+
+
+# ── XRDFusionMethod._cosine_similarity ────────────────────────────────────────
+
+
+def test_cosine_similarity_output_shape(dino_flavour, features, xrd_map_4d):
+    fusion = _make_fusion(xrd_map_4d)
+    result = fusion._cosine_similarity(features, xrd_map_4d)
+    _, _, H, W = features.shape
+    assert result.shape == (1, 1, H, W)
+
+
+def test_cosine_similarity_output_dtype(dino_flavour, features, xrd_map_4d):
+    fusion = _make_fusion(xrd_map_4d)
+    result = fusion._cosine_similarity(features, xrd_map_4d)
+    assert result.dtype == features.dtype
+
+
+def test_cosine_similarity_output_is_tensor(dino_flavour, features, xrd_map_4d):
+    fusion = _make_fusion(xrd_map_4d)
+    result = fusion._cosine_similarity(features, xrd_map_4d)
+    assert isinstance(result, torch.Tensor)
+
+
+def test_cosine_similarity_xrd_spatial_mismatch(dino_flavour, features, xrd_map_4d):
+    fusion = _make_fusion(xrd_map_4d)
+    xrd_mismatched = torch.rand(1, 1, 4, 4)
+    _, _, H, W = features.shape
+    result = fusion._cosine_similarity(features, xrd_mismatched)
+    assert result.shape == (1, 1, H, W)
+
+
+def test_cosine_similarity_scores_in_range(dino_flavour, features, xrd_map_4d):
+    fusion = _make_fusion(xrd_map_4d)
+    result = fusion._cosine_similarity(features, xrd_map_4d)
+    scores = result.float()
+    assert scores.min().item() >= -1.0 - 1e-5
+    assert scores.max().item() <= 1.0 + 1e-5
+
+
+def test_cosine_similarity_high_xrd_scores_positive(dino_flavour, features, xrd_map_4d):
+    fusion = _make_fusion(xrd_map_4d)
+    result = fusion._cosine_similarity(features, xrd_map_4d)
+    scores = result.float().reshape(-1)
+    w = xrd_map_4d.float().reshape(-1)
+    w = w / (w.sum() + 1e-8)
+    assert (scores * w).sum().item() >= 0
+
+
+# ── XRDFusionMethod.forward_xrd cosine_similarity dispatch ────────────────────
+
+
+def test_forward_xrd_cosine_similarity_shape(dino_flavour, features, xrd_map_4d):
+    fusion = _make_fusion(xrd_map_4d)
+    result = fusion.forward_xrd(features, idx=0, xrd_fusion_method="cosine_similarity")
+    _, _, H, W = features.shape
+    assert result.shape == (1, 1, H, W)
+
+
+def test_forward_xrd_cosine_similarity_dtype(dino_flavour, features, xrd_map_4d):
+    fusion = _make_fusion(xrd_map_4d)
+    result = fusion.forward_xrd(features, idx=0, xrd_fusion_method="cosine_similarity")
+    assert result.dtype == features.dtype
