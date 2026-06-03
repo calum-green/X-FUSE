@@ -692,6 +692,23 @@ class XFuse(HighResDV2):
 
         N_transforms = len(self.transforms)
         for i in range(N_transforms):
+            if self.xrd_fuse_method == "xrd_attn_weight":
+                tr_xrd = self.xrd_fusion_module.get_tr()[i]
+                xrd_patch = F.interpolate(
+                    tr_xrd.float(),
+                    (n_patch_h, n_patch_w),
+                    mode="bilinear",
+                    align_corners=False,
+                ).reshape(n_patch_h * n_patch_w)
+                w = xrd_patch / (xrd_patch.sum() + 1e-8)
+                n_prefix = 1 + self.n_register_tokens
+                N_total = n_prefix + n_patch_h * n_patch_w
+                xrd_bias = torch.zeros(
+                    1, 1, 1, N_total, dtype=self.dtype, device=xrd_patch.device
+                )
+                xrd_bias[0, 0, 0, n_prefix:] = torch.log(w + 1e-8)
+                self.dinov2.blocks[-1].attn._xrd_bias = xrd_bias
+
             transformed_img = img_batch[i].unsqueeze(0)
             out_dict = self.dinov2.forward_feats_attn(
                 transformed_img, None, attn_choice
@@ -709,22 +726,30 @@ class XFuse(HighResDV2):
                 permuted, i, self.xrd_fuse_method, top_k=top_k
             )
 
-            # Compact to active channels on GPU before upsampling, then
-            # scatter-accumulate into the CPU accumulator by index.
-            active_idx = (
-                fused_img.abs().sum(dim=(0, 2, 3)).nonzero(as_tuple=True)[0].cpu()
-            )
-            if active_idx.numel() == 0:
-                continue
-
-            full_size = F.interpolate(
-                fused_img[:, active_idx],
-                (img_h, img_w),
-                mode=self.interpolation_mode,
-            )
-            inv_transform = self.inverse_transforms[i]
-            inverted: torch.Tensor = inv_transform(full_size)
-            out_feature_img[:, active_idx] += inverted.cpu()
+            if self.xrd_fuse_method in ("gating", "learned_gating", "attention"):
+                # Skip fully-zeroed channels — only valid for sparse gating methods.
+                active_idx = (
+                    fused_img.abs().sum(dim=(0, 2, 3)).nonzero(as_tuple=True)[0].cpu()
+                )
+                if active_idx.numel() == 0:
+                    continue
+                full_size = F.interpolate(
+                    fused_img[:, active_idx],
+                    (img_h, img_w),
+                    mode=self.interpolation_mode,
+                )
+                inv_transform = self.inverse_transforms[i]
+                inverted: torch.Tensor = inv_transform(full_size)
+                out_feature_img[:, active_idx] += inverted.cpu()
+            else:
+                full_size = F.interpolate(
+                    fused_img,
+                    (img_h, img_w),
+                    mode=self.interpolation_mode,
+                )
+                inv_transform = self.inverse_transforms[i]
+                inverted: torch.Tensor = inv_transform(full_size)
+                out_feature_img += inverted.cpu()
 
         return out_feature_img / N_transforms  # on CPU to save memory
 
