@@ -188,6 +188,12 @@ class Patch:
             attn_choice: AttentionOptions = "none",
             # return_attn: bool = False,
         ) -> torch.Tensor:
+            # Read and immediately clear _xrd_bias so it is always consumed,
+            # even when xformers is unavailable (prevents stale state).
+            xrd_bias = getattr(self, '_xrd_bias', None)
+            if xrd_bias is not None:
+                self._xrd_bias = None
+
             if not XFORMERS_AVAILABLE:
                 if attn_bias is not None:
                     raise AssertionError(
@@ -198,7 +204,8 @@ class Patch:
             qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads)
 
             q, k, v = unbind(qkv, 2)
-            x = memory_efficient_attention(q, k, v, attn_bias=attn_bias)
+            effective_bias = xrd_bias if xrd_bias is not None else attn_bias
+            x = memory_efficient_attention(q, k, v, attn_bias=effective_bias)
             to_append: torch.Tensor
             if attn_choice != "none":
                 to_append = get_qkvo_per_head(
