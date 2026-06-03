@@ -25,6 +25,7 @@ FusionOptions: TypeAlias = Literal[
     "vanilla",
     "weighted_pca",
     "cosine_similarity",
+    "xrd_attn_weight",
 ]
 
 
@@ -189,6 +190,9 @@ class XRDFusionMethod(nn.Module):
         # return transformed XRD features ready to be fused with the DINO features
         if xrd_fusion_method == "vanilla":
             return x
+
+        if xrd_fusion_method == "xrd_attn_weight":
+            return x  # features already biased before this call
 
         if xrd_fusion_method == "weighted_pca":
             tr_xrd = self.get_tr()[idx]
