@@ -1,4 +1,5 @@
 from hr_dv2.high_res import HighResDV2
+from hr_dv2.patch import Patch
 import torch
 import torch.nn as nn
 from torch.nn.modules.utils import _pair
@@ -638,6 +639,10 @@ class XFuse(HighResDV2):
             return {"x_norm_patchtokens": feats, "masks": masks}
 
         dino_model.forward_feats_attn = MethodType(forward_feats_attn, dino_model)
+
+        if "vanilla_dv3" in dino_name:
+            attn_block = dino_model.blocks[-1].attn
+            attn_block.forward = MethodType(Patch._fix_mem_eff_attn(), attn_block)
 
     def get_model_params(self, dino_name: str) -> Tuple[int, int, int]:
         for segment in dino_name.split("_"):
