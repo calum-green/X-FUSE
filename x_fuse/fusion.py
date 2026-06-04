@@ -717,6 +717,25 @@ class XFuse(HighResDV2):
 
         N_transforms = len(self.transforms)
         for i in range(N_transforms):
+            if self.xrd_fuse_method == "xrd_embed_scale":
+                tr_xrd = self.xrd_fusion_module.get_tr()[i]
+                xrd_patch = F.interpolate(
+                    tr_xrd.float(),
+                    (n_patch_h, n_patch_w),
+                    mode="bilinear",
+                    align_corners=False,
+                ).reshape(n_patch_h * n_patch_w)
+                xrd_min = xrd_patch.min()
+                xrd_max = xrd_patch.max()
+                w = (xrd_patch - xrd_min) / (xrd_max - xrd_min + 1e-8)
+                scale = (
+                    (1.0 + w)
+                    .reshape(1, -1, 1)
+                    .to(dtype=self.dtype, device=xrd_patch.device)
+                )
+                inner = getattr(self.dinov2, "model", self.dinov2)
+                inner.patch_embed._xrd_scale = scale
+
             if self.xrd_fuse_method == "xrd_attn_weight":
                 tr_xrd = self.xrd_fusion_module.get_tr()[i]
                 xrd_patch = F.interpolate(
