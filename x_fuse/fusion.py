@@ -661,8 +661,16 @@ class XFuse(HighResDV2):
                     f"xrd_embed_scale requires a DINOv3 model, got '{dino_name}'"
                 )
             inner = getattr(dino_model, "model", dino_model)
+            # vanilla_dv3 uses RoPE and does attention inline (_fix_dv3_attn).
+            # nope/alibi dv3 must preserve compute_attention (_fix_alibi_dv3_attn),
+            # which carries the ALiBi distance bias injected by _inject_alibi_dv3.
+            patch_fn = (
+                Patch._fix_dv3_attn()
+                if "vanilla_dv3" in dino_name
+                else Patch._fix_alibi_dv3_attn()
+            )
             for blk in inner.blocks:
-                blk.attn.forward = MethodType(Patch._fix_dv3_attn(), blk.attn)
+                blk.attn.forward = MethodType(patch_fn, blk.attn)
 
     def get_model_params(self, dino_name: str) -> Tuple[int, int, int]:
         for segment in dino_name.split("_"):
