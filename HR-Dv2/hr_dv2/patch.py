@@ -246,6 +246,14 @@ class Patch:
             if xrd_bias is not None:
                 self._xrd_bias = None
 
+            # x is post-RMSNorm here (block calls self.attn(self.norm1(x))).
+            # Scaling here directly affects Q, K, V projections and therefore
+            # attention scores — unlike patch_embed scaling which is normalised away.
+            xrd_scale = getattr(self, "_xrd_scale", None)
+            if xrd_scale is not None:
+                self._xrd_scale = None
+                x = x * xrd_scale.to(dtype=x.dtype, device=x.device)
+
             B, N, C = x.shape
             qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads)
             q, k, v = torch.unbind(qkv, 2)

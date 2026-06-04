@@ -647,7 +647,8 @@ class XFuse(HighResDV2):
 
         dino_model.forward_feats_attn = MethodType(forward_feats_attn, dino_model)
 
-        if "vanilla_dv3" in dino_name:
+        if "vanilla_dv3" in dino_name and self.xrd_fuse_method != "xrd_embed_scale":
+            # xrd_embed_scale patches all blocks below; skip here to avoid double-patch.
             inner = getattr(dino_model, "model", dino_model)
             attn_block = inner.blocks[-1].attn
             attn_block.forward = MethodType(Patch._fix_dv3_attn(), attn_block)
@@ -658,14 +659,8 @@ class XFuse(HighResDV2):
                     f"xrd_embed_scale requires a DINOv3 model, got '{dino_name}'"
                 )
             inner = getattr(dino_model, "model", dino_model)
-
-            def _embed_hook(module, _, output):
-                scale = getattr(module, "_xrd_scale", None)
-                if scale is not None:
-                    module._xrd_scale = None
-                    return output * scale.to(dtype=output.dtype, device=output.device)
-
-            inner.patch_embed.register_forward_hook(_embed_hook)
+            for blk in inner.blocks:
+                blk.attn.forward = MethodType(Patch._fix_dv3_attn(), blk.attn)
 
     def get_model_params(self, dino_name: str) -> Tuple[int, int, int]:
         for segment in dino_name.split("_"):
@@ -731,13 +726,17 @@ class XFuse(HighResDV2):
                 xrd_min = xrd_patch.min()
                 xrd_max = xrd_patch.max()
                 w = (xrd_patch - xrd_min) / (xrd_max - xrd_min + 1e-8)
-                scale = (
-                    (1.0 + w)
-                    .reshape(1, n_patch_h, n_patch_w, 1)
-                    .to(dtype=self.dtype, device=xrd_patch.device)
+                n_prefix = 1 + self.n_register_tokens
+                N_total = n_prefix + n_patch_h * n_patch_w
+                # Prefix tokens (CLS, regs) get scale=1; patch tokens get (1+w).
+                # Shape (1, N_total, 1) broadcasts over embed_dim inside _fix_dv3_attn.
+                scale = torch.ones(
+                    1, N_total, 1, dtype=self.dtype, device=xrd_patch.device
                 )
+                scale[0, n_prefix:, 0] = (1.0 + w).to(dtype=self.dtype)
                 inner = getattr(self.dinov2, "model", self.dinov2)
-                inner.patch_embed._xrd_scale = scale
+                for blk in inner.blocks:
+                    blk.attn._xrd_scale = scale
 
             if self.xrd_fuse_method == "xrd_attn_weight":
                 tr_xrd = self.xrd_fusion_module.get_tr()[i]

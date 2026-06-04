@@ -114,3 +114,22 @@ def test_dv3_rope_kwarg_accepted(patched_dv3_attn):
     x = torch.randn(B, N, C)
     rope = torch.randn(N, C // 4)
     patched_dv3_attn(x, rope=rope)  # must not raise
+
+
+def test_dv3_xrd_scale_cleared_after_forward(patched_dv3_attn):
+    """_xrd_scale must be cleared after forward."""
+    B, N, C = 1, 10, 64
+    x = torch.randn(B, N, C)
+    patched_dv3_attn._xrd_scale = torch.ones(1, N, 1) * 1.5
+    patched_dv3_attn(x)
+    assert getattr(patched_dv3_attn, "_xrd_scale", None) is None
+
+
+def test_dv3_xrd_scale_changes_output(patched_dv3_attn):
+    """Scaling post-RMSNorm x must produce a different output than unscaled."""
+    B, N, C = 1, 10, 64
+    x = torch.randn(B, N, C)
+    out_baseline = patched_dv3_attn(x).detach().clone()
+    patched_dv3_attn._xrd_scale = torch.ones(1, N, 1) * 2.0
+    out_scaled = patched_dv3_attn(x).detach().clone()
+    assert not torch.allclose(out_baseline, out_scaled)
