@@ -470,6 +470,7 @@ class XFuse(HighResDV2):
         track_grad: bool = False,
         dtype: torch.dtype | int = torch.float16,
         loss_fn: LossOptions = "bce",
+        interp_chunk_size: int = 200,
         *args,
         **kwargs,
     ):
@@ -571,6 +572,7 @@ class XFuse(HighResDV2):
         self.transforms: List[partial] = []
         self.inverse_transforms: List[partial] = []
         self.interpolation_mode: Interpolation = "nearest-exact"
+        self.interp_chunk_size = interp_chunk_size
         self.pca_dim = pca_dim
         self.do_pca = pca_dim > 3
 
@@ -793,14 +795,17 @@ class XFuse(HighResDV2):
                 inverted: torch.Tensor = inv_transform(full_size)
                 out_feature_img[:, active_idx] += inverted.cpu()
             else:
-                full_size = F.interpolate(
-                    fused_img.cpu(),
-                    (img_h, img_w),
-                    mode=self.interpolation_mode,
-                )
+                C_total = fused_img.shape[1]
                 inv_transform = self.inverse_transforms[i]
-                inverted: torch.Tensor = inv_transform(full_size)
-                out_feature_img += inverted.cpu()
+                for start in range(0, C_total, self.interp_chunk_size):
+                    end = min(start + self.interp_chunk_size, C_total)
+                    chunk = F.interpolate(
+                        fused_img[:, start:end],
+                        (img_h, img_w),
+                        mode=self.interpolation_mode,
+                    )
+                    inverted_chunk: torch.Tensor = inv_transform(chunk)
+                    out_feature_img[:, start:end] += inverted_chunk.cpu()
 
         return out_feature_img / N_transforms  # on CPU to save memory
 
