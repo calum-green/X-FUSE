@@ -205,6 +205,8 @@ class Patch:
 
             q, k, v = unbind(qkv, 2)
             effective_bias = xrd_bias if xrd_bias is not None else attn_bias
+            if effective_bias is not None:
+                effective_bias = effective_bias.to(dtype=q.dtype, device=q.device)
             x = memory_efficient_attention(q, k, v, attn_bias=effective_bias)
             to_append: torch.Tensor
             if attn_choice != "none":
@@ -254,6 +256,8 @@ class Patch:
                 q, k = self.apply_rope(q, k, rope)
 
             effective_bias = xrd_bias if xrd_bias is not None else attn_bias
+            if effective_bias is not None:
+                effective_bias = effective_bias.to(dtype=q.dtype, device=q.device)
 
             if XFORMERS_AVAILABLE:
                 # xformers expects (B, N, num_heads, head_dim)
