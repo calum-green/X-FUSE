@@ -224,6 +224,34 @@ class Patch:
         return forward
 
     @staticmethod
+    def _fix_dv3_attn() -> Callable:
+        """Patches vanilla_dv3 SelfAttention.forward to inject _xrd_bias.
+
+        DINOv3's SelfAttention already accepts attn_bias and rope via compute_attention,
+        so this patch reads _xrd_bias from the module, clears it, and passes it as
+        attn_bias — leaving rope handling entirely to the existing compute_attention.
+        """
+
+        def forward(
+            self,
+            x: torch.Tensor,
+            attn_bias=None,
+            rope: torch.Tensor = None,
+        ) -> torch.Tensor:
+            xrd_bias = getattr(self, "_xrd_bias", None)
+            if xrd_bias is not None:
+                self._xrd_bias = None
+
+            effective_bias = xrd_bias if xrd_bias is not None else attn_bias
+            qkv = self.qkv(x)
+            attn_v = self.compute_attention(qkv=qkv, attn_bias=effective_bias, rope=rope)
+            x = self.proj(attn_v)
+            x = self.proj_drop(x)
+            return x
+
+        return forward
+
+    @staticmethod
     def _fix_block_forward_dino() -> Callable:
         """
         Replaces normal 'forward()' method of the block module to ensure the 'return_attn'

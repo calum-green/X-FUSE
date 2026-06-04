@@ -365,58 +365,122 @@ git commit -m "feat: add XRD bias injection and fix active-channel guard in forw
 
 ---
 
-### Task 4: `patch_last_block` — apply `_fix_mem_eff_attn` for `vanilla_dv3`
+### Task 4: `patch_last_block` — apply `_fix_dv3_attn` for `vanilla_dv3`
 
 **Files:**
-- Modify: `x_fuse/fusion.py:622-636`
+- Modify: `HR-Dv2/hr_dv2/patch.py` — add `_fix_dv3_attn()`
+- Modify: `x_fuse/fusion.py:622-646` — `patch_last_block` + `forward_sequential`
+- Test: `tests/test_patch.py`
 
-`patch_last_block` requires a live DINOv3 model to verify. Correctness is confirmed by running the integration notebook with `vanilla_dv3` and `xrd_attn_weight`.
+> **Why `_fix_dv3_attn` and not `_fix_mem_eff_attn`?**
+> DINOv3's `SelfAttention.forward(x, attn_bias=None, rope=None)` already accepts `attn_bias`
+> and passes it (with `rope`) to its own `compute_attention`. Using `_fix_mem_eff_attn` would
+> replace that entirely and drop `rope`, breaking positional encoding. `_fix_dv3_attn` reads
+> `_xrd_bias`, clears it, then delegates to `compute_attention` so rope is handled correctly.
+>
+> **Before writing any patch, read the target class's `forward` signature first.**
 
-- [ ] **Step 1: Add vanilla_dv3 attention patch**
+- [x] **Step 1: Add `_fix_dv3_attn()` to `HR-Dv2/hr_dv2/patch.py`**
 
-In `XFuse.patch_last_block`, add the following block immediately after the `dino_model.forward_feats_attn = MethodType(...)` assignment:
+Insert immediately after `_fix_mem_eff_attn`'s `return forward` line:
+
+```python
+    @staticmethod
+    def _fix_dv3_attn() -> Callable:
+        """Patches vanilla_dv3 SelfAttention.forward to inject _xrd_bias.
+
+        DINOv3's SelfAttention already accepts attn_bias and rope via compute_attention,
+        so this patch reads _xrd_bias from the module, clears it, and passes it as
+        attn_bias — leaving rope handling entirely to the existing compute_attention.
+        """
+
+        def forward(
+            self,
+            x: torch.Tensor,
+            attn_bias=None,
+            rope: torch.Tensor = None,
+        ) -> torch.Tensor:
+            xrd_bias = getattr(self, "_xrd_bias", None)
+            if xrd_bias is not None:
+                self._xrd_bias = None
+
+            effective_bias = xrd_bias if xrd_bias is not None else attn_bias
+            qkv = self.qkv(x)
+            attn_v = self.compute_attention(qkv=qkv, attn_bias=effective_bias, rope=rope)
+            x = self.proj(attn_v)
+            x = self.proj_drop(x)
+            return x
+
+        return forward
+```
+
+- [x] **Step 2: Write and run tests for `_fix_dv3_attn`**
+
+Add to `tests/test_patch.py`:
+
+```python
+class MockAttnDV3(torch.nn.Module):
+    def __init__(self, feat_dim=64, num_heads=4):
+        super().__init__()
+        self.num_heads = num_heads
+        self.qkv = torch.nn.Linear(feat_dim, feat_dim * 3, bias=False)
+        self.proj = torch.nn.Linear(feat_dim, feat_dim, bias=False)
+        self.proj_drop = torch.nn.Dropout(0.0)
+
+    def compute_attention(self, qkv, attn_bias=None, rope=None):
+        C = qkv.shape[-1] // 3
+        return qkv[:, :, :C]
+
+    def forward(self, x, attn_bias=None, rope=None):
+        return x  # replaced entirely by the patch
+
+
+@pytest.fixture
+def patched_dv3_attn():
+    attn = MockAttnDV3(feat_dim=64, num_heads=4)
+    attn.forward = MethodType(Patch._fix_dv3_attn(), attn)
+    return attn
+
+
+def test_dv3_xrd_bias_cleared_after_forward(patched_dv3_attn): ...
+def test_dv3_no_xrd_bias_does_not_error(patched_dv3_attn): ...
+def test_dv3_rope_kwarg_accepted(patched_dv3_attn): ...
+```
+
+Run: `pytest tests/test_patch.py -v` — Expected: 5 passed
+
+- [x] **Step 3: Update `patch_last_block` in `fusion.py`**
+
+`_DV3Wrapper` stores the real transformer as `self.model`, so `dino_model.blocks` does not
+exist — unwrap with `getattr(dino_model, "model", dino_model)`:
 
 ```python
         if "vanilla_dv3" in dino_name:
-            attn_block = dino_model.blocks[-1].attn
-            attn_block.forward = MethodType(Patch._fix_mem_eff_attn(), attn_block)
+            inner = getattr(dino_model, "model", dino_model)
+            attn_block = inner.blocks[-1].attn
+            attn_block.forward = MethodType(Patch._fix_dv3_attn(), attn_block)
 ```
 
-The complete method after the change:
+- [x] **Step 4: Update `forward_sequential` XRD bias injection**
+
+Same `_DV3Wrapper` unwrapping required for the bias injection line:
 
 ```python
-    def patch_last_block(self, dino_model: nn.Module, dino_name: str) -> None:
-        if (
-            "alibi" not in dino_name
-            and "nope" not in dino_name
-            and "dv3" not in dino_name
-        ):
-            super().patch_last_block(dino_model, dino_name)
-            return
-
-        def forward_feats_attn(self_model, x, masks=None, attn_choice="none"):
-            feats = self_model.forward_features(x)  # (B, C, N_patches)
-            feats = feats.permute(0, 2, 1)  # (B, N_patches, C)
-            return {"x_norm_patchtokens": feats, "masks": masks}
-
-        dino_model.forward_feats_attn = MethodType(forward_feats_attn, dino_model)
-
-        if "vanilla_dv3" in dino_name:
-            attn_block = dino_model.blocks[-1].attn
-            attn_block.forward = MethodType(Patch._fix_mem_eff_attn(), attn_block)
+                inner = getattr(self.dinov2, "model", self.dinov2)
+                inner.blocks[-1].attn._xrd_bias = xrd_bias
 ```
 
-- [ ] **Step 2: Run full unit test suite**
+- [x] **Step 5: Run full unit test suite**
 
 ```bash
 pytest tests/ -v
 ```
 
-Expected: all tests pass
+Expected: all tests pass (4 pre-existing failures: 2 CUDA-only, 2 segmentation — unrelated)
 
-- [ ] **Step 3: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
-git add x_fuse/fusion.py
-git commit -m "feat: patch blocks[-1].attn with _fix_mem_eff_attn for vanilla_dv3 xrd_attn_weight support"
+git add HR-Dv2/hr_dv2/patch.py x_fuse/fusion.py tests/test_patch.py
+git commit -m "fix: use _fix_dv3_attn for vanilla_dv3; unwrap _DV3Wrapper for blocks access"
 ```

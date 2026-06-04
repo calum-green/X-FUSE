@@ -643,7 +643,7 @@ class XFuse(HighResDV2):
         if "vanilla_dv3" in dino_name:
             inner = getattr(dino_model, "model", dino_model)
             attn_block = inner.blocks[-1].attn
-            attn_block.forward = MethodType(Patch._fix_mem_eff_attn(), attn_block)
+            attn_block.forward = MethodType(Patch._fix_dv3_attn(), attn_block)
 
     def get_model_params(self, dino_name: str) -> Tuple[int, int, int]:
         for segment in dino_name.split("_"):
