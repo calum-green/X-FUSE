@@ -30,6 +30,34 @@ A minimal wrapper around the original DINOv3 `SelfAttention.forward` with one ad
 and apply `_xrd_scale` before QKV projection. Delegates attention computation to
 `self.compute_attention(qkv)`, which preserves whatever is patched on that method.
 
+Confirmed against DINOv3 source (`dinov3.layers.attention.SelfAttention`):
+
+```python
+# Original SelfAttention.forward (confirmed source):
+def forward(self, x, attn_bias=None, rope=None):
+    qkv = self.qkv(x)                                          # (B, N, 3*C) — 3D, no reshape
+    attn_v = self.compute_attention(qkv=qkv, attn_bias=attn_bias, rope=rope)
+    x = self.proj(attn_v)
+    x = self.proj_drop(x)
+    return x
+
+# Original compute_attention (confirmed source):
+def compute_attention(self, qkv, attn_bias=None, rope=None):
+    assert attn_bias is None
+    B, N, _ = qkv.shape                                        # expects 3D (B, N, 3*C)
+    C = self.qkv.in_features
+    qkv = qkv.reshape(B, N, 3, self.num_heads, C // self.num_heads)
+    q, k, v = torch.unbind(qkv, 2)
+    q, k, v = [t.transpose(1, 2) for t in [q, k, v]]
+    if rope is not None:
+        q, k = self.apply_rope(q, k, rope)                     # NoPE: skipped (rope=None)
+    x = F.scaled_dot_product_attention(q, k, v)
+    x = x.transpose(1, 2)
+    return x.reshape([B, N, C])
+```
+
+`_fix_alibi_dv3_attn` is the original `forward` with `_xrd_scale` injection prepended:
+
 ```python
 @staticmethod
 def _fix_alibi_dv3_attn() -> Callable:
@@ -39,9 +67,8 @@ def _fix_alibi_dv3_attn() -> Callable:
             self._xrd_scale = None
             x = x * xrd_scale.to(dtype=x.dtype, device=x.device)
 
-        B, N, C = x.shape
-        qkv = self.qkv(x).reshape(B, N, 3 * self.num_heads, C // self.num_heads)
-        x = self.compute_attention(qkv, attn_bias=attn_bias, rope=rope)
+        qkv = self.qkv(x)  # (B, N, 3*C) — 3D, no reshape; matches original forward exactly
+        x = self.compute_attention(qkv=qkv, attn_bias=attn_bias, rope=rope)
         x = self.proj(x)
         x = self.proj_drop(x)
         return x
@@ -49,12 +76,13 @@ def _fix_alibi_dv3_attn() -> Callable:
 ```
 
 **Why `rope` is safe to pass**: for both NoPE and ALiBi models, the block never passes
-`rope` to `attn.forward` (rope is always `None`). `compute_attention` accepts it as a
-keyword arg and ignores it.
+`rope` to `attn.forward` (always `None`). NoPE's `compute_attention` skips `apply_rope`
+when `rope is None`. ALiBi's patched `compute_attention` ignores `rope` entirely.
 
-**Why `attn_bias=None` is safe**: NoPE's `compute_attention` asserts `attn_bias is None`.
-ALiBi's patched `compute_attention` ignores `attn_bias` entirely (it reads `self.m` and the
-closed-over distance matrix directly). In both cases `attn_bias=None` is correct.
+**Why `attn_bias=None` is safe**: NoPE's `compute_attention` asserts `attn_bias is None`
+(confirmed in source). ALiBi's patched `compute_attention` ignores `attn_bias` entirely —
+it reads `self.m` and the closed-over distance matrix directly. In both cases `attn_bias=None`
+is correct.
 
 ### `patch_last_block` routing
 
@@ -136,8 +164,10 @@ adapted for `PretrainedViTWrapper`'s attention interface.
 
 ## Tests
 
-`MockAttnAlibiDV3` — mock with `compute_attention` that returns a plausible `(B, N, C)`
-tensor:
+### Mock
+
+`MockAttnAlibiDV3` mirrors the confirmed DINOv3 `SelfAttention` interface. `compute_attention`
+expects 3D `qkv` — exactly as confirmed from source (`B, N, _ = qkv.shape`):
 
 ```python
 class MockAttnAlibiDV3(torch.nn.Module):
@@ -149,16 +179,88 @@ class MockAttnAlibiDV3(torch.nn.Module):
         self.proj_drop = torch.nn.Dropout(0.0)
 
     def compute_attention(self, qkv, attn_bias=None, rope=None):
+        # Mirrors original compute_attention: expects 3D (B, N, 3*C)
         B, N, _ = qkv.shape
         C = self.qkv.in_features
-        return qkv.reshape(B, N, 3, self.num_heads, C // self.num_heads)[:, :, 0].reshape(B, N, C)
+        qkv_r = qkv.reshape(B, N, 3, self.num_heads, C // self.num_heads)
+        q, k, v = torch.unbind(qkv_r, 2)
+        q, k, v = [t.transpose(1, 2) for t in [q, k, v]]
+        x = torch.nn.functional.scaled_dot_product_attention(q, k, v)
+        return x.transpose(1, 2).reshape(B, N, C)
 
     def forward(self, x, attn_bias=None, rope=None):
         return x  # replaced by patch
 ```
 
-Tests:
-- `test_alibi_dv3_xrd_scale_cleared_after_forward` — `_xrd_scale` is None after call
-- `test_alibi_dv3_no_xrd_scale_does_not_error` — no AttributeError when scale absent
+### Logic trace
+
+The full call chain exercised by the tests:
+
+```
+block.forward(x)
+└── attn.forward(norm1(x), rope=None)          ← _fix_alibi_dv3_attn replaces this
+    ├── read & clear _xrd_scale
+    ├── x = x * scale  (if set)
+    ├── qkv = self.qkv(x)                      → (B, N, 3*C), 3D
+    ├── x = self.compute_attention(qkv=qkv, attn_bias=None, rope=None)
+    │   ├── NoPE path:  assert attn_bias is None ✓
+    │   │               reshape → q, k, v
+    │   │               rope is None → skip apply_rope
+    │   │               SDPA(q, k, v) → (B, N, C)
+    │   └── ALiBi path: _compute_attn from _inject_alibi_dv3
+    │                   reads self.m + distance_matrix
+    │                   chunked SDPA with ALiBi bias → (B, N, C)
+    ├── x = self.proj(x)
+    └── x = self.proj_drop(x)
+```
+
+### Test list
+
+**State tests** (parallel to `_fix_dv3_attn` tests):
+- `test_alibi_dv3_xrd_scale_cleared_after_forward` — `_xrd_scale` is `None` after call
+- `test_alibi_dv3_no_xrd_scale_does_not_error` — no `AttributeError` when scale absent
 - `test_alibi_dv3_xrd_scale_changes_output` — scaled output differs from unscaled
-- `test_alibi_dv3_compute_attention_called` (optional) — verify `compute_attention` is invoked
+
+**Logic trace tests** (verifies `compute_attention` is not bypassed):
+
+```python
+def test_alibi_dv3_compute_attention_called(patched_alibi_dv3_attn):
+    """_fix_alibi_dv3_attn must delegate to compute_attention, not bypass it.
+    Verifies qkv is 3D (B, N, 3*C) — matching the confirmed source signature."""
+    B, N, C = 1, 10, 64
+    x = torch.randn(B, N, C)
+    call_log = []
+    original = patched_alibi_dv3_attn.compute_attention
+
+    def spy(qkv, attn_bias=None, rope=None):
+        call_log.append(qkv.shape)
+        return original(qkv, attn_bias=attn_bias, rope=rope)
+
+    patched_alibi_dv3_attn.compute_attention = spy
+    patched_alibi_dv3_attn(x)
+    assert len(call_log) == 1, "compute_attention must be called exactly once"
+    assert call_log[0] == (B, N, C * 3), f"qkv must be 3D (B, N, 3*C), got {call_log[0]}"
+
+
+def test_alibi_dv3_custom_compute_attention_preserved(patched_alibi_dv3_attn):
+    """Patching attn.forward must not destroy a custom compute_attention (e.g. ALiBi bias).
+    Replaces compute_attention with a constant-output stub and verifies the stub's
+    output propagates through proj/proj_drop — confirming the custom implementation
+    is called rather than bypassed."""
+    B, N, C = 1, 10, 64
+    x = torch.randn(B, N, C)
+    sentinel = torch.ones(B, N, C) * 99.0
+
+    def stub_compute(qkv, attn_bias=None, rope=None):
+        return sentinel
+
+    original = patched_alibi_dv3_attn.compute_attention
+    patched_alibi_dv3_attn.compute_attention = stub_compute
+    out_stub = patched_alibi_dv3_attn(x).detach().clone()
+
+    patched_alibi_dv3_attn.compute_attention = original
+    out_standard = patched_alibi_dv3_attn(x).detach().clone()
+
+    assert not torch.allclose(out_stub, out_standard), \
+        "custom compute_attention output must propagate — not be overridden inline"
+```
