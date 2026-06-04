@@ -227,9 +227,11 @@ class Patch:
     def _fix_dv3_attn() -> Callable:
         """Patches vanilla_dv3 SelfAttention.forward to inject _xrd_bias.
 
-        DINOv3's SelfAttention already accepts attn_bias and rope via compute_attention,
-        so this patch reads _xrd_bias from the module, clears it, and passes it as
-        attn_bias — leaving rope handling entirely to the existing compute_attention.
+        DINOv3's compute_attention asserts attn_bias is None, so we replicate its
+        logic inline. xformers memory_efficient_attention is used when available
+        (memory-safe for large models e.g. 7B); falls back to SDPA otherwise.
+        rope is applied via self.apply_rope in (B, num_heads, N, head_dim) format,
+        then tensors are transposed back to xformers' (B, N, num_heads, head_dim) format.
         """
 
         def forward(
@@ -242,12 +244,30 @@ class Patch:
             if xrd_bias is not None:
                 self._xrd_bias = None
 
+            B, N, C = x.shape
+            qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads)
+            q, k, v = torch.unbind(qkv, 2)
+            # transpose to (B, num_heads, N, head_dim) for rope
+            q, k, v = [t.transpose(1, 2) for t in [q, k, v]]
+
+            if rope is not None:
+                q, k = self.apply_rope(q, k, rope)
+
             effective_bias = xrd_bias if xrd_bias is not None else attn_bias
-            qkv = self.qkv(x)
-            attn_v = self.compute_attention(qkv=qkv, attn_bias=effective_bias, rope=rope)
-            x = self.proj(attn_v)
-            x = self.proj_drop(x)
-            return x
+
+            if XFORMERS_AVAILABLE:
+                # xformers expects (B, N, num_heads, head_dim)
+                q, k, v = [t.transpose(1, 2) for t in [q, k, v]]
+                out = memory_efficient_attention(q, k, v, attn_bias=effective_bias)
+                out = out.reshape(B, N, C)
+            else:
+                # q, k, v already in (B, num_heads, N, head_dim) for SDPA
+                out = F.scaled_dot_product_attention(q, k, v, attn_mask=effective_bias)
+                out = out.transpose(1, 2).reshape(B, N, C)
+
+            out = self.proj(out)
+            out = self.proj_drop(out)
+            return out
 
         return forward
 

@@ -69,6 +69,9 @@ class MockAttnDV3(torch.nn.Module):
         self.proj = torch.nn.Linear(feat_dim, feat_dim, bias=False)
         self.proj_drop = torch.nn.Dropout(0.0)
 
+    def apply_rope(self, q, k, rope):
+        return q, k  # identity — no real rope in mock
+
     def compute_attention(self, qkv, attn_bias=None, rope=None):
         C = qkv.shape[-1] // 3
         return qkv[:, :, :C]  # return q-slice as proxy; shape (B, N, C)
