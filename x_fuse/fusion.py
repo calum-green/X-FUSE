@@ -641,7 +641,8 @@ class XFuse(HighResDV2):
         dino_model.forward_feats_attn = MethodType(forward_feats_attn, dino_model)
 
         if "vanilla_dv3" in dino_name:
-            attn_block = dino_model.blocks[-1].attn
+            inner = getattr(dino_model, "model", dino_model)
+            attn_block = inner.blocks[-1].attn
             attn_block.forward = MethodType(Patch._fix_mem_eff_attn(), attn_block)
 
     def get_model_params(self, dino_name: str) -> Tuple[int, int, int]:
@@ -712,7 +713,8 @@ class XFuse(HighResDV2):
                     1, 1, 1, N_total, dtype=self.dtype, device=xrd_patch.device
                 )
                 xrd_bias[0, 0, 0, n_prefix:] = torch.log(w + 1e-8)
-                self.dinov2.blocks[-1].attn._xrd_bias = xrd_bias
+                inner = getattr(self.dinov2, "model", self.dinov2)
+                inner.blocks[-1].attn._xrd_bias = xrd_bias
 
             transformed_img = img_batch[i].unsqueeze(0)
             out_dict = self.dinov2.forward_feats_attn(
