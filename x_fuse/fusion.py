@@ -709,10 +709,14 @@ class XFuse(HighResDV2):
                 w = xrd_patch / (xrd_patch.sum() + 1e-8)
                 n_prefix = 1 + self.n_register_tokens
                 N_total = n_prefix + n_patch_h * n_patch_w
+                log_w = torch.log(w.float() + 1e-8)
+                # 2D bilateral bias: bias[i,j] = log(w_i) + log(w_j) for the
+                # patch-patch block only. Attention between two phase-A patches
+                # is boosted by w_i * w_j; prefix tokens remain neutral (bias=0).
                 xrd_bias = torch.zeros(
-                    1, 1, 1, N_total, dtype=self.dtype, device=xrd_patch.device
+                    1, 1, N_total, N_total, dtype=torch.float32, device=xrd_patch.device
                 )
-                xrd_bias[0, 0, 0, n_prefix:] = torch.log(w + 1e-8)
+                xrd_bias[0, 0, n_prefix:, n_prefix:] = log_w[:, None] + log_w[None, :]
                 inner = getattr(self.dinov2, "model", self.dinov2)
                 inner.blocks[-1].attn._xrd_bias = xrd_bias
 
