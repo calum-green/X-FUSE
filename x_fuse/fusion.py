@@ -478,6 +478,9 @@ class XFuse(HighResDV2):
         same functionality, however, I will add the extra modules that
         perform the XRD fusion, given an XCT input.
         """
+        # Set before super().__init__() — patch_last_block is called inside it
+        # and needs xrd_fuse_method to register model-specific hooks.
+        self.xrd_fuse_method = xrd_fuse_method
         # pass to HighResDV2 init
         super().__init__(
             dino_name,
