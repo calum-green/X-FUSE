@@ -284,6 +284,39 @@ class Patch:
         return forward
 
     @staticmethod
+    def _fix_alibi_dv3_attn() -> Callable:
+        """Patches NoPE/ALiBi DINOv3 SelfAttention.forward to inject _xrd_scale.
+
+        Unlike _fix_dv3_attn (for vanilla_dv3 with RoPE), this method preserves the
+        existing compute_attention call — critical for ALiBi models where compute_attention
+        is patched by _inject_alibi_dv3 to add ALiBi distance bias. For NoPE models,
+        compute_attention is the standard attention without positional encoding.
+
+        Implementation is the confirmed SelfAttention.forward source with _xrd_scale
+        injection prepended. qkv is passed as 3D (B, N, 3*C) — the shape compute_attention
+        expects (confirmed from dinov3.layers.attention source).
+        """
+
+        def forward(
+            self,
+            x: torch.Tensor,
+            attn_bias=None,
+            rope: torch.Tensor = None,
+        ) -> torch.Tensor:
+            xrd_scale = getattr(self, "_xrd_scale", None)
+            if xrd_scale is not None:
+                self._xrd_scale = None
+                x = x * xrd_scale.to(dtype=x.dtype, device=x.device)
+
+            qkv = self.qkv(x)  # (B, N, 3*C) — 3D, no reshape; matches original forward
+            x = self.compute_attention(qkv=qkv, attn_bias=attn_bias, rope=rope)
+            x = self.proj(x)
+            x = self.proj_drop(x)
+            return x
+
+        return forward
+
+    @staticmethod
     def _fix_block_forward_dino() -> Callable:
         """
         Replaces normal 'forward()' method of the block module to ensure the 'return_attn'
