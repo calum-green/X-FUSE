@@ -110,6 +110,15 @@ if self.xrd_fuse_method == "xrd_embed_scale":
         blk.attn.forward = MethodType(patch_fn, blk.attn)
 ```
 
+**`patch_fn` computed once**: both `_fix_dv3_attn()` and `_fix_alibi_dv3_attn()` return plain
+inner functions with no per-block closure state. Sharing one function object across all blocks
+via `MethodType(patch_fn, blk.attn)` is safe — each call binds a different `blk.attn` as `self`.
+
+**`xrd_attn_weight` not supported for nope/alibi**: the existing `"vanilla_dv3" in dino_name`
+guard in `patch_last_block` means nope/alibi blocks are never patched with `_fix_dv3_attn` for
+`xrd_attn_weight`. `_xrd_bias` injection would have no effect on these models. This is out of
+scope for this spec; nope/alibi + `xrd_attn_weight` requires a separate implementation.
+
 ### `forward_sequential` — no changes needed
 
 The XRD scale injection already works for all dv3 variants:
@@ -122,6 +131,16 @@ for blk in inner.blocks:
 
 `getattr(self.dinov2, "model", self.dinov2)` correctly unwraps `_DV3Wrapper` (which stores
 the actual DINOv3 model as `self.model`) for vanilla, NoPE, and ALiBi models alike.
+
+**Scale tensor shape**: `(1, N_total, 1)` where `N_total = 1 + self.n_register_tokens + N_patches`.
+For standard models with 4 register tokens, `n_prefix = 5` matches the actual token sequence
+`[CLS, R1-R4, P1-PN]` inside the DINOv3 blocks. Broadcasting: `(1, N_total, C) * (1, N_total, 1)`
+is valid since HR-DV2 processes one window at a time (B=1). ✓
+
+**Pre-existing "nr" model caveat**: `XFuse.__init__` hardcodes `self.n_register_tokens = 4`.
+Models loaded with `"nr"` in the name (no registers, `n_reg_tokens=0`) would produce a scale
+tensor of the wrong length. This is a pre-existing issue unrelated to this spec; standard models
+with 4 registers are unaffected.
 
 ---
 
