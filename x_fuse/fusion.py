@@ -750,7 +750,7 @@ class XFuse(HighResDV2):
                 out_feature_img[:, active_idx] += inverted.cpu()
             else:
                 full_size = F.interpolate(
-                    fused_img,
+                    fused_img.cpu(),
                     (img_h, img_w),
                     mode=self.interpolation_mode,
                 )
