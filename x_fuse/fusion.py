@@ -733,7 +733,7 @@ class XFuse(HighResDV2):
                 w = (xrd_patch - xrd_min) / (xrd_max - xrd_min + 1e-8)
                 scale = (
                     (1.0 + w)
-                    .reshape(1, -1, 1)
+                    .reshape(1, n_patch_h, n_patch_w, 1)
                     .to(dtype=self.dtype, device=xrd_patch.device)
                 )
                 inner = getattr(self.dinov2, "model", self.dinov2)
