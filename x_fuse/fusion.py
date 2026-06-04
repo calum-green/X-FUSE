@@ -27,6 +27,7 @@ FusionOptions: TypeAlias = Literal[
     "weighted_pca",
     "cosine_similarity",
     "xrd_attn_weight",
+    "xrd_embed_scale",
 ]
 
 
@@ -194,6 +195,9 @@ class XRDFusionMethod(nn.Module):
 
         if xrd_fusion_method == "xrd_attn_weight":
             return x  # features already biased before this call
+
+        if xrd_fusion_method == "xrd_embed_scale":
+            return x  # features already biased at patch_embed before this call
 
         if xrd_fusion_method == "weighted_pca":
             tr_xrd = self.get_tr()[idx]

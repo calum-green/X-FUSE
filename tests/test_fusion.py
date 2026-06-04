@@ -372,3 +372,24 @@ def test_forward_xrd_attn_weight_dtype(dino_flavour, features, xrd_map_4d):
     fusion = _make_fusion(xrd_map_4d)
     result = fusion.forward_xrd(features, idx=0, xrd_fusion_method="xrd_attn_weight")
     assert result.dtype == features.dtype
+
+
+# ── XRDFusionMethod.forward_xrd xrd_embed_scale dispatch ──────────────────────
+
+
+def test_forward_xrd_embed_scale_returns_x(dino_flavour, features, xrd_map_4d):
+    fusion = _make_fusion(xrd_map_4d)
+    result = fusion.forward_xrd(features, idx=0, xrd_fusion_method="xrd_embed_scale")
+    assert result is features
+
+
+def test_forward_xrd_embed_scale_shape(dino_flavour, features, xrd_map_4d):
+    fusion = _make_fusion(xrd_map_4d)
+    result = fusion.forward_xrd(features, idx=0, xrd_fusion_method="xrd_embed_scale")
+    assert result.shape == features.shape
+
+
+def test_forward_xrd_embed_scale_dtype(dino_flavour, features, xrd_map_4d):
+    fusion = _make_fusion(xrd_map_4d)
+    result = fusion.forward_xrd(features, idx=0, xrd_fusion_method="xrd_embed_scale")
+    assert result.dtype == features.dtype
