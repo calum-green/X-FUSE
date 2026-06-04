@@ -649,6 +649,21 @@ class XFuse(HighResDV2):
             attn_block = inner.blocks[-1].attn
             attn_block.forward = MethodType(Patch._fix_dv3_attn(), attn_block)
 
+        if self.xrd_fuse_method == "xrd_embed_scale":
+            if "dv3" not in dino_name:
+                raise ValueError(
+                    f"xrd_embed_scale requires a DINOv3 model, got '{dino_name}'"
+                )
+            inner = getattr(dino_model, "model", dino_model)
+
+            def _embed_hook(module, _, output):
+                scale = getattr(module, "_xrd_scale", None)
+                if scale is not None:
+                    module._xrd_scale = None
+                    return output * scale.to(dtype=output.dtype, device=output.device)
+
+            inner.patch_embed.register_forward_hook(_embed_hook)
+
     def get_model_params(self, dino_name: str) -> Tuple[int, int, int]:
         for segment in dino_name.split("_"):
             m = re.match(r"^vit(7b|[sblg])(\d+)", segment)
