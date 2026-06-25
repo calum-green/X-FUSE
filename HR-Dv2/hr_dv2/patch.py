@@ -234,6 +234,10 @@ class Patch:
         (memory-safe for large models e.g. 7B); falls back to SDPA otherwise.
         rope is applied via self.apply_rope in (B, num_heads, N, head_dim) format,
         then tensors are transposed back to xformers' (B, N, num_heads, head_dim) format.
+
+        _xrd_scale is applied to the query only (never key/value) — see
+        _fix_alibi_dv3_attn for the rationale (scaling k/v broadcasts a boosted patch
+        across the whole image and smears small phases).
         """
 
         def forward(
@@ -247,16 +251,23 @@ class Patch:
                 self._xrd_bias = None
 
             # x is post-RMSNorm here (block calls self.attn(self.norm1(x))).
-            # Scaling here directly affects Q, K, V projections and therefore
-            # attention scores — unlike patch_embed scaling which is normalised away.
             xrd_scale = getattr(self, "_xrd_scale", None)
             if xrd_scale is not None:
                 self._xrd_scale = None
-                x = x * xrd_scale.to(dtype=x.dtype, device=x.device)
 
             B, N, C = x.shape
             qkv = self.qkv(x).reshape(B, N, 3, self.num_heads, C // self.num_heads)
-            q, k, v = torch.unbind(qkv, 2)
+            q, k, v = torch.unbind(qkv, 2)  # each (B, N, num_heads, head_dim)
+
+            if xrd_scale is not None:
+                # Scale ONLY the query (per-token), never key/value: scaling k/v turns
+                # boosted patches into attention hubs that broadcast across the image and
+                # smear small phases. scale is (1, N, 1) -> (1, N, 1, 1) to broadcast over
+                # heads and head_dim. A scalar-per-token commutes with the RoPE rotation,
+                # so applying it here (pre-rope) equals applying it post-rope.
+                s = xrd_scale.to(dtype=q.dtype, device=q.device).unsqueeze(-1)
+                q = q * s
+
             # transpose to (B, num_heads, N, head_dim) for rope
             q, k, v = [t.transpose(1, 2) for t in [q, k, v]]
 
@@ -295,6 +306,14 @@ class Patch:
         Implementation is the confirmed SelfAttention.forward source with _xrd_scale
         injection prepended. qkv is passed as 3D (B, N, 3*C) — the shape compute_attention
         expects (confirmed from dinov3.layers.attention source).
+
+        _xrd_scale is applied to the QUERY block of qkv only, never key/value. Scaling
+        keys/values turns boosted (high-XRD) patches into attention hubs: every token's
+        score against them rises, so their value is broadcast across the whole image and
+        a small phase gets smeared into everything. Scaling only the query sharpens each
+        boosted patch's own attention toward its most similar (same-phase) tokens, keeping
+        the bias local. On ALiBi this also raises content similarity relative to the fixed
+        additive distance bias, tilting attention toward phase over mere proximity.
         """
 
         def forward(
@@ -306,9 +325,18 @@ class Patch:
             xrd_scale = getattr(self, "_xrd_scale", None)
             if xrd_scale is not None:
                 self._xrd_scale = None
-                x = x * xrd_scale.to(dtype=x.dtype, device=x.device)
 
             qkv = self.qkv(x)  # (B, N, 3*C) — 3D, no reshape; matches original forward
+
+            if xrd_scale is not None:
+                # qkv is laid out [q | k | v] along the last dim, matching
+                # compute_attention's (B, N, 3, num_heads, head_dim) reshape, so the
+                # first C channels are the query. Scale only those. _xrd_scale is
+                # (1, N, 1) and broadcasts over the C query channels.
+                C = qkv.shape[-1] // 3
+                scale = xrd_scale.to(dtype=qkv.dtype, device=qkv.device)
+                qkv = torch.cat([qkv[..., :C] * scale, qkv[..., C:]], dim=-1)
+
             x = self.compute_attention(qkv=qkv, attn_bias=attn_bias, rope=rope)
             x = self.proj(x)
             x = self.proj_drop(x)
